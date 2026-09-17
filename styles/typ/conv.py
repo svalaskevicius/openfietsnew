@@ -4,16 +4,17 @@
 Convert TYPWiz .typ.prj files to mkgmap TYP compiler .txt files.
 
 Usage:
-    python3 typwiz2mkgmap.py input.typ.prj output.txt
+    python3 conv.py input.typ.prj output.txt
 
 The converter handles:
+
     [Project]
     [POI]
     [POLYLINE]
     [LINE]
     [POLYGON]
 
-TYPWiz bitmap representation:
+TYPWiz bitmap example:
 
     Color=0,0xffffff
     Color=1,0x000000
@@ -22,7 +23,13 @@ TYPWiz bitmap representation:
 
 is converted to mkgmap XPM.
 
-The first Color number is the pixel index used in Line=.
+TYPWiz uses the characters in Line= as pixel indexes.
+
+A literal space in a TYPWiz bitmap means background/transparent.
+mkgmap requires that transparent pixels have a declared XPM colour,
+so spaces are converted to '.' with:
+
+    ". c none"
 """
 
 import argparse
@@ -39,6 +46,10 @@ SECTION_MAP = {
 }
 
 
+# ----------------------------------------------------------------------
+# Basic helpers
+# ----------------------------------------------------------------------
+
 def parse_int(value):
     value = value.strip()
     return int(value, 0)
@@ -46,18 +57,21 @@ def parse_int(value):
 
 def rgb(value):
     """
-    Convert TYPWiz RGB integer to mkgmap #RRGGBB.
+    Convert a TYPWiz RGB value to mkgmap #RRGGBB.
 
-    TYPWiz examples look like:
-        0xffffff
-        0x242929
+    Examples:
+
+        0xffffff -> #FFFFFF
+        0x242929 -> #242929
+        none     -> none
     """
     value = value.strip()
 
-    if value.lower() == "none":
+    if value.lower() in ("none", "transparent"):
         return "none"
 
     n = int(value, 0)
+
     return "#{:06X}".format(n & 0xFFFFFF)
 
 
@@ -66,17 +80,25 @@ def split_key_value(line):
         return line.strip(), ""
 
     key, value = line.split("=", 1)
+
     return key.strip(), value.strip()
 
 
+# ----------------------------------------------------------------------
+# Strings
+# ----------------------------------------------------------------------
+
 def parse_string(value):
     """
-    TYPWiz:
+    Convert:
+
         String=4,sea
 
-    mkgmap:
+    to:
+
         String=0x04,sea
     """
+
     if "," not in value:
         return value
 
@@ -86,28 +108,43 @@ def parse_string(value):
 
     try:
         n = int(lang, 0)
+
         return "0x{:02x},{}".format(n, text)
+
     except ValueError:
         return value
 
+
+# ----------------------------------------------------------------------
+# XPM
+# ----------------------------------------------------------------------
 
 def safe_xpm_characters(n):
     """
     Return printable one-character XPM symbols.
 
-    Avoid quote and backslash because these would need escaping
-    in the mkgmap text representation.
+    We deliberately avoid:
+
+        "
+        \\
+
+    because they would need escaping in the generated text file.
+
+    '.' is also reserved for our transparent pixel.
     """
+
     chars = []
 
     for c in (
         "0123456789"
         "abcdefghijklmnopqrstuvwxyz"
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "!#$%&()*+,-./:;<=>?@[]^_{}|~"
+        "!#$%&()*+,-/:;<=>?@[]^_{}|~"
     ):
-        if c not in ('"', '\\'):
-            chars.append(c)
+        if c in ('"', '\\', '.'):
+            continue
+
+        chars.append(c)
 
     if n > len(chars):
         raise ValueError(
@@ -117,134 +154,333 @@ def safe_xpm_characters(n):
     return chars[:n]
 
 
+# ----------------------------------------------------------------------
+# Colour parsing
+# ----------------------------------------------------------------------
+
 def parse_colors(properties):
     """
-    Return:
+    Parse TYPWiz Color= entries.
 
-        [(index, '#RRGGBB'), ...]
+    Example:
 
-    sorted by colour index.
+        Color=0,0xffffff
+        Color=1,0x393000
+        Color=2,0x7b6500
+
+    Returns:
+
+        [
+            (0, "#FFFFFF"),
+            (1, "#393000"),
+            (2, "#7B6500"),
+        ]
+
+    The list is sorted by numeric colour index.
     """
+
     colors = []
 
     for key, value in properties:
-        if key.lower() != "color":
+
+        kl = key.strip().lower()
+
+        if kl != "color":
             continue
 
         if "," not in value:
             continue
 
-        index, colour = value.split(",", 1)
+        index_text, colour_text = value.split(",", 1)
+
+        index_text = index_text.strip()
+        colour_text = colour_text.strip()
 
         try:
-            index = int(index.strip(), 0)
+            index = int(index_text, 0)
         except ValueError:
             continue
 
-        colors.append((index, rgb(colour)))
+        try:
+            colour = rgb(colour_text)
+        except ValueError:
+            raise ValueError(
+                "Invalid Color value: {!r}".format(value)
+            )
 
-    colors.sort()
+        colors.append((index, colour))
+
+    # Remove duplicate indexes while retaining the last definition.
+    by_index = {}
+
+    for index, colour in colors:
+        by_index[index] = colour
+
+    colors = sorted(by_index.items())
 
     return colors
 
 
 def get_lines(properties):
+    """
+    Get all Line= bitmap rows.
+    """
+
     return [
         value
         for key, value in properties
-        if key.lower() == "line"
+        if key.strip().lower() == "line"
     ]
 
 
+def bitmap_indexes(lines):
+    """
+    Return the set of pixel characters actually used by the bitmap.
+
+    Spaces are deliberately excluded because TYPWiz uses them as
+    transparent/background pixels.
+    """
+
+    used = set()
+
+    for row in lines:
+        for pixel in row:
+            if pixel != " ":
+                used.add(pixel)
+
+    return used
+
+
 def make_xpm(lines, colors, point=False):
+    """
+    Convert a TYPWiz bitmap into mkgmap XPM.
+
+    TYPWiz:
+
+        Color=0,...
+        Color=1,...
+        Color=2,...
+
+        Line=001122
+        Line=011220
+
+    becomes something like:
+
+        6 2 4 1
+        "0 c #FFFFFF"
+        "1 c #393000"
+        "2 c #7B6500"
+        ". c none"
+        "001122"
+        "011220"
+
+    The '.' pixel is transparent.
+    """
+
     if not lines:
         return None
 
+    # --------------------------------------------------------------
+    # Normalize bitmap rows.
+    # --------------------------------------------------------------
+
     height = len(lines)
-    width = max(len(x) for x in lines)
 
-    # Make all rows the same length.
-    rows = [x.ljust(width) for x in lines]
+    width = max(len(row) for row in lines)
 
-    # TYPWiz colour indexes can be arbitrary.
-    colour_map = {}
+    rows = [
+        row.ljust(width)
+        for row in lines
+    ]
 
-    # Assign XPM characters.
+    # --------------------------------------------------------------
+    # Build colour-index lookup.
+    # --------------------------------------------------------------
+
+    colour_by_index = {}
+
+    for index, colour in colors:
+        colour_by_index[str(index)] = colour
+
+    # --------------------------------------------------------------
+    # Find actual bitmap indexes.
+    # --------------------------------------------------------------
+
+    used = bitmap_indexes(rows)
+
+    defined = set(colour_by_index.keys())
+
+    missing = sorted(
+        used - defined,
+        key=lambda x: (
+            0,
+            int(x)
+        ) if x.isdigit() else (
+            1,
+            x
+        )
+    )
+
+    if missing:
+        raise ValueError(
+            "Bitmap contains colour index(es) with no Color= "
+            "definition: {}. Defined Color= indexes: {}. "
+            "Bitmap indexes: {}".format(
+                ", ".join(repr(x) for x in missing),
+                ", ".join(
+                    str(index)
+                    for index, colour in colors
+                ) or "(none)",
+                ", ".join(
+                    repr(x)
+                    for x in sorted(used)
+                ) or "(none)",
+            )
+        )
+
+    # --------------------------------------------------------------
+    # Assign XPM symbols.
+    #
+    # Keep the TYPWiz colour indexes associated with their colour,
+    # but XPM itself uses arbitrary one-character symbols.
+    # --------------------------------------------------------------
+
     symbols = safe_xpm_characters(len(colors))
+
+    colour_map = {}
 
     for symbol, (index, colour) in zip(symbols, colors):
         colour_map[str(index)] = symbol
 
-    # If there are pixel indices without Color= entries,
-    # fail rather than silently producing corrupt artwork.
-    used = set("".join(rows))
-    missing = sorted(
-        x for x in used
-        if x.strip() and x not in colour_map
-    )
+    # '.' is reserved for transparency.
+    transparent = "."
 
-    # TYPWiz uses an implicit background/transparent pixel in
-    # some objects.  Treat an undefined index as transparent.
-    for index in missing:
-        colour_map[index] = " "
+    # --------------------------------------------------------------
+    # Convert bitmap rows.
+    # --------------------------------------------------------------
 
-    # TYPWiz commonly uses decimal digits as indexes.
-    # For multi-digit indexes we need a little more care.
-    #
-    # In practice the openfietsnew file uses single-character
-    # colour indexes, so this is the normal path.
     converted_rows = []
 
     for row in rows:
+
         out = []
+
         for pixel in row:
-            if pixel in colour_map:
+
+            # TYPWiz literal space = transparent/background.
+            if pixel == " ":
+                out.append(transparent)
+
+            elif pixel in colour_map:
                 out.append(colour_map[pixel])
+
             else:
-                out.append(" ")
+                # This should already have been caught above.
+                raise ValueError(
+                    "Bitmap contains unknown colour index: {!r}".format(
+                        pixel
+                    )
+                )
+
         converted_rows.append("".join(out))
 
-    header = '{} {} {} 1'.format(
+    # --------------------------------------------------------------
+    # XPM header.
+    #
+    # Add one colour for transparency.
+    # --------------------------------------------------------------
+
+    colour_count = len(colors) + 1
+
+    header = "{} {} {} 1".format(
         width,
         height,
-        len(colors),
+        colour_count,
     )
 
     result = [header]
 
-    for symbol, (index, colour) in zip(symbols, colors):
-        result.append('"{} c {}"'.format(symbol, colour))
+    # --------------------------------------------------------------
+    # Normal colours.
+    # --------------------------------------------------------------
 
-    result.extend('"{}"'.format(row) for row in converted_rows)
+    for symbol, (index, colour) in zip(symbols, colors):
+
+        result.append(
+            '"{} c {}"'.format(
+                symbol,
+                colour,
+            )
+        )
+
+    # --------------------------------------------------------------
+    # Transparent colour.
+    #
+    # mkgmap documents 'none' as the transparent colour.
+    # --------------------------------------------------------------
+
+    result.append(
+        '". c none"'
+    )
+
+    # --------------------------------------------------------------
+    # Bitmap rows.
+    # --------------------------------------------------------------
+
+    for row in converted_rows:
+
+        result.append(
+            '"{}"'.format(row)
+        )
 
     return result
 
+
+# ----------------------------------------------------------------------
+# Ordinary property translation
+# ----------------------------------------------------------------------
 
 def translate_property(key, value, section):
     """
     Translate ordinary TYPWiz fields to mkgmap fields.
     """
 
-    kl = key.lower()
+    kl = key.strip().lower()
+
+    # --------------------------------------------------------------
+    # Type
+    # --------------------------------------------------------------
 
     if kl == "type":
-        return "Type={}".format(value)
+
+        return "Type={}".format(
+            value
+        )
+
+    # --------------------------------------------------------------
+    # String
+    # --------------------------------------------------------------
 
     if kl == "string":
-        return "String={}".format(parse_string(value))
 
+        return "String={}".format(
+            parse_string(value)
+        )
+
+    # String1, String2, String3, ...
     if kl.startswith("string") and kl[6:].isdigit():
+
         return "String{}={}".format(
             key[6:],
             parse_string(value),
         )
 
+    # --------------------------------------------------------------
+    # TextSize
+    # --------------------------------------------------------------
+
     if kl == "textsize":
-        # TYPWiz TextSize:
-        #   0 = no label
-        #   1 = small
-        #   2 = normal
-        #   3 = large
+
         mapping = {
             "0": "NoLabel",
             "1": "SmallFont",
@@ -253,129 +489,253 @@ def translate_property(key, value, section):
         }
 
         return "FontStyle={}".format(
-            mapping.get(value.strip(), "SmallFont")
+            mapping.get(
+                value.strip(),
+                "SmallFont",
+            )
         )
 
+    # --------------------------------------------------------------
+    # TextColor
+    # --------------------------------------------------------------
+
     if kl == "textcolor":
+
         return "DayCustomColor={}".format(
             rgb(value)
         )
 
+    # --------------------------------------------------------------
+    # LineWidth
+    # --------------------------------------------------------------
+
     if kl == "linewidth":
-        return "LineWidth={}".format(value)
+
+        return "LineWidth={}".format(
+            value
+        )
+
+    # --------------------------------------------------------------
+    # BorderWidth
+    # --------------------------------------------------------------
 
     if kl == "borderwidth":
-        return "BorderWidth={}".format(value)
+
+        return "BorderWidth={}".format(
+            value
+        )
+
+    # --------------------------------------------------------------
+    # UseOrientation
+    # --------------------------------------------------------------
 
     if kl == "useorientation":
-        return "UseOrientation={}".format(value)
 
+        return "UseOrientation={}".format(
+            value
+        )
+
+    # Unsupported property.
     return None
 
 
+# ----------------------------------------------------------------------
+# Project parser
+# ----------------------------------------------------------------------
+
 def parse_project(lines):
     """
-    Parse the TYPWiz project into a list of sections.
+    Parse the TYPWiz project.
 
     Returns:
+
         [
-            ("Project", [(key,value), ...]),
-            ("POI", [...]),
+            ("Project", [(key, value), ...]),
+            ("POI",     [(key, value), ...]),
             ...
         ]
     """
 
     sections = []
-    current = None
+
+    current_name = None
+    current_properties = None
 
     for raw in lines:
+
         line = raw.rstrip("\r\n")
 
         stripped = line.strip()
 
+        # Empty line.
         if not stripped:
             continue
 
+        # Comment.
         if stripped.startswith("#"):
             continue
 
+        # ----------------------------------------------------------
         # [END]
+        # ----------------------------------------------------------
+
         if stripped.upper() == "[END]":
-            if current is not None:
-                sections.append(current)
-                current = None
+
+            if current_name is not None:
+
+                sections.append(
+                    (
+                        current_name,
+                        current_properties,
+                    )
+                )
+
+                current_name = None
+                current_properties = None
+
             continue
 
-        # [Project], [POI], etc.
-        m = re.match(r"^\[([^\]]+)\]$", stripped)
+        # ----------------------------------------------------------
+        # [Section]
+        # ----------------------------------------------------------
 
-        if m:
-            name = m.group(1)
-            current = (name, [])
+        match = re.match(
+            r"^\[([^\]]+)\]$",
+            stripped,
+        )
+
+        if match:
+
+            current_name = match.group(1)
+            current_properties = []
+
             continue
 
-        if current is None:
+        # Ignore anything before the first section.
+        if current_name is None:
             continue
+
+        # ----------------------------------------------------------
+        # key=value
+        # ----------------------------------------------------------
 
         key, value = split_key_value(line)
 
         if key:
-            current[1].append((key, value))
 
-    if current is not None:
-        sections.append(current)
+            current_properties.append(
+                (
+                    key,
+                    value,
+                )
+            )
+
+    # Be tolerant of files without a final [END].
+    if current_name is not None:
+
+        sections.append(
+            (
+                current_name,
+                current_properties,
+            )
+        )
 
     return sections
 
 
+# ----------------------------------------------------------------------
+# Project output
+# ----------------------------------------------------------------------
+
 def emit_project(properties, out):
+
     family = None
     product = None
     codepage = 1252
 
     for key, value in properties:
-        kl = key.lower()
+
+        kl = key.strip().lower()
 
         if kl == "familyid":
+
             family = parse_int(value)
 
         elif kl == "productcode":
+
             product = parse_int(value)
 
         elif kl == "codepage":
+
             codepage = parse_int(value)
 
-    # Your sample has FamilyID but no ProductCode.
-    # mkgmap's normal/default product code is 1.
+    # TYPWiz projects commonly omit ProductCode.
     if product is None:
         product = 1
 
     if family is not None:
+
         out.append("[_id]")
-        out.append("FID={}".format(family))
-        out.append("ProductCode={}".format(product))
-        out.append("CodePage={}".format(codepage))
+
+        out.append(
+            "FID={}".format(family)
+        )
+
+        out.append(
+            "ProductCode={}".format(product)
+        )
+
+        out.append(
+            "CodePage={}".format(codepage)
+        )
+
         out.append("[end]")
+
         out.append("")
 
 
+# ----------------------------------------------------------------------
+# Element output
+# ----------------------------------------------------------------------
+
 def emit_element(name, properties, out):
-    section = SECTION_MAP.get(name.upper())
+
+    section = SECTION_MAP.get(
+        name.upper()
+    )
 
     if section is None:
         return
 
+    # --------------------------------------------------------------
+    # Read colours and bitmap.
+    # --------------------------------------------------------------
+
     colors = parse_colors(properties)
+
     lines = get_lines(properties)
 
-    out.append("[{}]".format(section))
+    # --------------------------------------------------------------
+    # Start section.
+    # --------------------------------------------------------------
 
+    out.append(
+        "[{}]".format(section)
+    )
+
+    # --------------------------------------------------------------
     # Ordinary properties.
+    # --------------------------------------------------------------
+
     for key, value in properties:
 
-        kl = key.lower()
+        kl = key.strip().lower()
 
-        if kl in ("color", "line"):
+        # These are handled separately as bitmap data.
+        if kl in (
+            "color",
+            "line",
+        ):
             continue
 
         translated = translate_property(
@@ -385,63 +745,128 @@ def emit_element(name, properties, out):
         )
 
         if translated:
-            out.append(translated)
 
-    # TYPWiz indexed bitmap -> mkgmap XPM.
+            out.append(
+                translated
+            )
+
+    # --------------------------------------------------------------
+    # TYPWiz bitmap -> mkgmap XPM.
+    # --------------------------------------------------------------
+
     if lines:
+
         xpm = make_xpm(
             lines,
             colors,
-            point=(section == "_point"),
+            point=(
+                section == "_point"
+            ),
         )
 
         if xpm:
+
             if section == "_point":
+
                 out.append(
-                    'DayXpm="{}"'.format(xpm[0])
+                    'DayXpm="{}"'.format(
+                        xpm[0]
+                    )
                 )
+
             else:
+
                 out.append(
-                    'Xpm="{}"'.format(xpm[0])
+                    'Xpm="{}"'.format(
+                        xpm[0]
+                    )
                 )
 
-            out.extend(xpm[1:])
+            out.extend(
+                xpm[1:]
+            )
 
-    out.append("[end]")
+    # --------------------------------------------------------------
+    # End section.
+    # --------------------------------------------------------------
+
+    out.append(
+        "[end]"
+    )
+
     out.append("")
 
 
+# ----------------------------------------------------------------------
+# Conversion
+# ----------------------------------------------------------------------
+
 def convert(filename):
-    with open(filename, "r", encoding="latin-1") as f:
-        sections = parse_project(f.readlines())
+
+    with open(
+        filename,
+        "r",
+        encoding="latin-1",
+    ) as f:
+
+        sections = parse_project(
+            f.readlines()
+        )
 
     output = []
 
     for name, properties in sections:
 
+        # ----------------------------------------------------------
+        # Project
+        # ----------------------------------------------------------
+
         if name.lower() == "project":
-            emit_project(properties, output)
+
+            emit_project(
+                properties,
+                output,
+            )
+
+        # ----------------------------------------------------------
+        # Elements
+        # ----------------------------------------------------------
 
         elif name.upper() in SECTION_MAP:
+
             emit_element(
                 name,
                 properties,
                 output,
             )
 
+        # ----------------------------------------------------------
+        # Unsupported section
+        # ----------------------------------------------------------
+
         else:
+
             print(
-                "warning: ignoring unsupported section [{}]"
-                .format(name),
+                "warning: ignoring unsupported section [{}]".format(
+                    name
+                ),
                 file=sys.stderr,
             )
 
     return "\n".join(output)
 
 
+# ----------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------
+
 def main():
+
     parser = argparse.ArgumentParser(
-        description="Convert TYPWiz .typ.prj to mkgmap TYP text."
+        description=(
+            "Convert TYPWiz .typ.prj "
+            "to mkgmap TYP compiler text."
+        )
     )
 
     parser.add_argument(
@@ -457,7 +882,10 @@ def main():
     args = parser.parse_args()
 
     try:
-        result = convert(args.input)
+
+        result = convert(
+            args.input
+        )
 
         with open(
             args.output,
@@ -465,13 +893,16 @@ def main():
             encoding="utf-8",
             newline="\n",
         ) as f:
+
             f.write(result)
 
     except Exception as e:
+
         print(
             "error: {}".format(e),
             file=sys.stderr,
         )
+
         sys.exit(1)
 
 
