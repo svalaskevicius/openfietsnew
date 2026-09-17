@@ -5,10 +5,8 @@ set -e
 # Unmatched globs expand to nothing (so an empty source list skips cleanly instead of
 # running against a literal "*.prj" path). Set once here for the whole script.
 shopt -s nullglob
-
-# Wipe stale output first (same mapid -> duplicate entries otherwise).
-rm -rf tmp/split tmp/gmapsupp.img
-
+ 
+rm -rf tmp/split 
 mkdir -p tmp/split
 
 # 1) Merge OSM + elevation  (skip if you just want a quick smoke test)
@@ -34,12 +32,16 @@ for style in styles/typ/*.typ.txt; do
     java -cp bin/mkgmap-r4924/mkgmap.jar uk.me.parabola.mkgmap.main.TypCompiler "${style}.typ.txt" "${style}.typ" 
 done
 
+rm -f tmp/g
+mkdir -p tmp/g
+
 # 3) mkgmap → gmapsupp.img   (fid=2114; binary .typ compiled from source above, no gmt needed)
 #    bounds -> addresses / administrative boundaries / derived POIs. Missing before = incomplete map.
-java -Xmx62G -jar bin/mkgmap-r4924/mkgmap.jar \
+java -Xmx52G -jar bin/mkgmap-r4924/mkgmap.jar \
      --read-config=styles/openfietsnew/template.args \
      --family-id=2114 --mapname=21140001 \
-     --output-dir=tmp --gmapsupp --tdbfile --max-jobs=20 \
+     --drive-on=left \
+     --output-dir=tmp/g --gmapsupp --tdbfile --max-jobs=10 \
      --bounds=data/bounds-latest.zip \
      --precomp-sea=data/sea-latest.zip \
      --remove-ovm-work-files \

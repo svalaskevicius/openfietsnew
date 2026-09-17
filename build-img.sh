@@ -27,7 +27,7 @@ mkdir -p /tmp/garmin-sd
 sudo mount "$PART" /tmp/garmin-sd
 
 sudo mkdir -p /tmp/garmin-sd/Garmin
-sudo cp ../tmp/gmapsupp.img /tmp/garmin-sd/Garmin/
+sudo cp ../tmp/g/gmapsupp.img /tmp/garmin-sd/Garmin/
 
 sync
 
