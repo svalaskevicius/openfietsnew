@@ -18,7 +18,6 @@ SECTION_MAP = {
 
 TEXT_ENCODING = "latin-1"
 OUTPUT_ENCODING = "utf-8"
-
 DEBUG = True
 
 
@@ -64,7 +63,7 @@ def fail(
 
 
 # ============================================================================
-# Binary input
+# Binary input helpers
 # ============================================================================
 
 def strip_binary_newline(line):
@@ -101,13 +100,11 @@ def is_section_line(line):
 
 def section_name(line):
     stripped = line.strip()
-
     return stripped[1:-1].decode(TEXT_ENCODING)
 
 
 def is_comment(line):
     stripped = line.lstrip()
-
     return stripped.startswith(b";") or stripped.startswith(b"#")
 
 
@@ -136,18 +133,7 @@ def parse_int(value, default=0):
 
 def rgb(value):
     """
-    Convert a Garmin/TYP RGB value into XPM's #RRGGBB form.
-
-    Input examples:
-
-        0xffffff
-        0x123456
-        ffffff
-
-    Output:
-
-        #ffffff
-        #123456
+    Convert a TYP RGB value to #RRGGBB.
     """
     value = value.strip()
 
@@ -189,39 +175,29 @@ def parse_string(value):
 
 
 # ============================================================================
-# XPM character generation
+# XPM character handling
 # ============================================================================
 
 def xpm_character_set():
     """
-    Safe printable ASCII characters for XPM tokens.
+    Safe printable ASCII characters.
 
-    XPM supports arbitrary character strings as colour identifiers.
-
-    We avoid:
-
+    We exclude:
         space
         "
-        \\
+        \
 
-    because they complicate quoted XPM strings.
+    because they are inconvenient inside quoted XPM strings.
 
-    We deliberately do NOT use the old one-character TYPWiz scheme here.
-
-    With cpp=2, 87 characters gives:
-
-        87 * 87 = 7569
-
-    possible colour tokens.
-
-    That is vastly more than the maximum needed by this converter.
+    '0' is also excluded because the source TYP format uses ASCII '0'
+    as the transparent bitmap pixel.
     """
     chars = []
 
     for code in range(0x21, 0x7F):
         char = chr(code)
 
-        if char in {" ", '"', "\\"}:
+        if char in {" ", '"', "\\", "."}:
             continue
 
         chars.append(char)
@@ -232,36 +208,81 @@ def xpm_character_set():
 XPM_CHARS = xpm_character_set()
 
 
-def generate_xpm_tokens(count, cpp=2):
+def available_xpm_tokens(cpp):
     """
-    Generate unique ASCII XPM colour tokens.
+    Number of possible tokens for the requested characters-per-pixel.
+    """
+    return len(XPM_CHARS) ** cpp
 
-    For cpp=2 this produces:
 
+def generate_xpm_tokens(count, cpp, has_transparency):
+    """
+    Generate deterministic ASCII XPM tokens.
+
+    cpp=1:
+        !
+        #
+        $
+        ...
+
+    cpp=2:
         !!
         !#
         !$
         ...
-        ~}
 
-    etc., excluding unsafe characters.
-
-    The generated tokens are deterministic.
+    cpp=2 is used only when cpp=1 cannot represent all colours.
     """
-    if cpp != 2:
-        raise ValueError("This converter currently generates cpp=2 XPM.")
+    if cpp == 1:
+        if count > len(XPM_CHARS):
+            raise ConversionError(
+                f"Cannot generate {count} one-character XPM tokens"
+            )
 
-    tokens = []
+        tokens = XPM_CHARS[:count]
+        if has_transparency:
+            tokens.append(".")
+        return tokens
 
-    for first in XPM_CHARS:
-        for second in XPM_CHARS:
-            tokens.append(first + second)
+    if cpp == 2:
+        tokens = []
 
-            if len(tokens) >= count:
-                return tokens
+        for first in XPM_CHARS:
+            for second in XPM_CHARS:
+                tokens.append(first + second)
+
+                if len(tokens) >= count:
+                    if has_transparency:
+                        tokens.append("..")
+                    return tokens
+
+        raise ConversionError(
+            f"Cannot generate {count} two-character XPM tokens"
+        )
 
     raise ConversionError(
-        f"Unable to create {count} XPM tokens with cpp={cpp}"
+        f"Unsupported XPM cpp={cpp}"
+    )
+
+
+def choose_cpp(colour_count):
+    """
+    Use one character whenever possible.
+
+    Only switch to two characters when necessary.
+    """
+    if colour_count <= available_xpm_tokens(1):
+        return 1
+
+    if colour_count <= available_xpm_tokens(2):
+        return 2
+
+    raise ConversionError(
+        (
+            f"Too many colours ({colour_count}) for XPM: "
+            f"maximum with cpp=1 is {available_xpm_tokens(1)}, "
+            f"maximum with cpp=2 is {available_xpm_tokens(2)}"
+        )
     )
 
 
@@ -271,21 +292,19 @@ def generate_xpm_tokens(count, cpp=2):
 
 def build_source_palette(colours):
     """
-    Build:
+    Convert the source Color= list into:
 
-        source Color key byte -> RGB
-
-    from:
-
-        [(key_byte, rgb_string), ...]
+        raw colour-key byte -> RGB
     """
     palette = {}
 
     for key_byte, colour_rgb in colours:
         if key_byte in palette:
             warn(
-                f"Duplicate Color= key 0x{key_byte:02x}; "
-                f"later definition replaces earlier definition"
+                (
+                    f"Duplicate Color= key 0x{key_byte:02x}; "
+                    f"later definition replaces earlier definition"
+                )
             )
 
         palette[key_byte] = colour_rgb
@@ -302,38 +321,7 @@ def convert_bitmap_to_xpm(
     element_index,
 ):
     """
-    Convert the Garmin/TYPWiz bitmap into standard mkgmap XPM.
-
-    IMPORTANT SOURCE FORMAT:
-
-        ASCII '0' (0x30) = transparent
-
-        bitmap byte = Color key byte + 1
-
-    Examples:
-
-        Color=0,... -> bitmap '1'
-        Color=1,... -> bitmap '2'
-        Color=2,... -> bitmap '3'
-
-    Thus:
-
-        b'33333331000013333333'
-
-    means:
-
-        3 -> Color key 2
-        1 -> Color key 0
-        0 -> transparent
-
-    OUTPUT FORMAT:
-
-        Xpm="width height colours cpp"
-
-        "token c #RRGGBB"
-        "token c none"
-
-        "tokentokentoken..."
+    Convert the binary TYPWiz bitmap into XPM.
     """
 
     info(
@@ -358,9 +346,7 @@ def convert_bitmap_to_xpm(
         )
 
     # ------------------------------------------------------------------------
-    # Verify that every row has exactly the same number of source pixels.
-    #
-    # DO NOT pad or truncate anything.
+    # Verify every source row has exactly the same width.
     # ------------------------------------------------------------------------
     for row_index, row in enumerate(rows):
         if len(row) != width:
@@ -380,10 +366,7 @@ def convert_bitmap_to_xpm(
     source_palette = build_source_palette(colours)
 
     # ------------------------------------------------------------------------
-    # Determine which source colours actually occur in the bitmap.
-    #
-    # This is useful because some TYPWiz files may contain Color= definitions
-    # which aren't referenced by this particular bitmap.
+    # Find the actual colours referenced by the bitmap.
     # ------------------------------------------------------------------------
     referenced_keys = set()
     has_transparency = False
@@ -391,87 +374,81 @@ def convert_bitmap_to_xpm(
     for row_index, row in enumerate(rows):
         for column_index, pixel_byte in enumerate(row):
 
-            # ASCII '0' = transparent.
-            if pixel_byte == ord("0"):
-                has_transparency = True
-                continue
-
-            # Bitmap byte is Color key + 1.
-            source_key = (pixel_byte - 1) & 0xFF
+            source_key = pixel_byte & 0xFF
 
             if source_key not in source_palette:
-                fail(
-                    (
-                        "Bitmap references an undefined Color= entry. "
-                        f"pixel_byte=0x{pixel_byte:02x}, "
-                        f"derived_color_key=0x{source_key:02x}, "
-                        f"row={row_index}, "
-                        f"column={column_index}, "
-                        f"row_length={len(row)}, "
-                        f"defined_colours={len(source_palette)}"
-                    ),
-                    filename=filename,
-                    section=section,
-                    key="Line",
-                    raw=row,
-                )
+                has_transparency = True
 
             referenced_keys.add(source_key)
 
     # ------------------------------------------------------------------------
-    # Preserve Color= ordering from the original file.
-    #
-    # This makes the output easier to compare against the source.
+    # Preserve the source Color= order.
     # ------------------------------------------------------------------------
     ordered_keys = []
 
     for key_byte, _ in colours:
-        if key_byte in referenced_keys and key_byte not in ordered_keys:
+        if (
+            key_byte in referenced_keys
+            and key_byte not in ordered_keys
+        ):
             ordered_keys.append(key_byte)
 
     # ------------------------------------------------------------------------
-    # Number of XPM colours.
-    #
-    # Transparent is a real XPM colour entry using:
-    #
-    #     c none
-    #
-    # when transparency exists.
+    # Transparency is one XPM colour.
     # ------------------------------------------------------------------------
-    colour_count = len(ordered_keys)
+    vis_colour_count = len(ordered_keys)
+    colour_count = vis_colour_count
 
     if has_transparency:
         colour_count += 1
 
-    # cpp=2 is enough for 108 colours by a huge margin.
-    cpp = 2
+    # ------------------------------------------------------------------------
+    # IMPORTANT:
+    #
+    # cpp=1 unless it is actually necessary to use cpp=2.
+    # ------------------------------------------------------------------------
+    cpp = choose_cpp(colour_count)
 
-    tokens = generate_xpm_tokens(colour_count, cpp=cpp)
+    info(
+        f"  XPM palette: colors={colour_count}, cpp={cpp}"
+    )
 
+    if cpp == 1:
+        info(
+            "  XPM palette fits in one character; "
+            "using cpp=1"
+        )
+    else:
+        info(
+            "  XPM palette requires more than one character; "
+            "using cpp=2"
+        )
+
+    # ------------------------------------------------------------------------
+    # Generate palette tokens.
+    # ------------------------------------------------------------------------
+    tokens = generate_xpm_tokens(
+        vis_colour_count,
+        cpp,
+        has_transparency
+    )
+    if has_transparency:
+        transparent_token = tokens[vis_colour_count]
+
+    print(tokens)
     token_index = 0
+    print(colour_count)
+
     token_for_source_key = {}
 
-    # Reserve first token for transparency if necessary.
-    transparent_token = None
-
-    if has_transparency:
-        transparent_token = tokens[token_index]
-        token_index += 1
-
-    # Assign one token to every actual source colour.
     for source_key in ordered_keys:
         token_for_source_key[source_key] = tokens[token_index]
         token_index += 1
 
     # ------------------------------------------------------------------------
-    # Build XPM colour definitions.
+    # XPM colour definitions.
     # ------------------------------------------------------------------------
     colour_lines = []
-
-    if has_transparency:
-        colour_lines.append(
-            f'"{transparent_token} c none"'
-        )
 
     for source_key in ordered_keys:
         token = token_for_source_key[source_key]
@@ -481,8 +458,15 @@ def convert_bitmap_to_xpm(
             f'"{token} c {colour_rgb}"'
         )
 
+    if has_transparency:
+        colour_lines.append(
+            f'"{transparent_token} c none"'
+        )
+
+
+    print(colour_lines)
     # ------------------------------------------------------------------------
-    # Convert each source bitmap pixel to a two-character XPM token.
+    # Bitmap.
     # ------------------------------------------------------------------------
     bitmap_lines = []
 
@@ -490,49 +474,12 @@ def convert_bitmap_to_xpm(
         output_row = []
 
         for column_index, pixel_byte in enumerate(row):
-
-            # ------------------------------------------------------------
-            # CRITICAL:
-            #
-            # ASCII '0' is transparent.
-            #
-            # Do NOT subtract one from it.
-            # ------------------------------------------------------------
-            if pixel_byte == ord("0"):
-                if transparent_token is None:
-                    fail(
-                        (
-                            "Internal error: transparent pixel found "
-                            "without transparent XPM token"
-                        ),
-                        filename=filename,
-                        section=section,
-                        key="Line",
-                        raw=row,
-                    )
-
-                output_row.append(transparent_token)
-                continue
-
-            source_key = (pixel_byte - 1) & 0xFF
+            source_key = pixel_byte & 0xFF
 
             token = token_for_source_key.get(source_key)
 
             if token is None:
-                fail(
-                    (
-                        "Bitmap references a colour which was not assigned "
-                        f"an XPM token: "
-                        f"pixel_byte=0x{pixel_byte:02x}, "
-                        f"source_color_key=0x{source_key:02x}, "
-                        f"row={row_index}, "
-                        f"column={column_index}"
-                    ),
-                    filename=filename,
-                    section=section,
-                    key="Line",
-                    raw=row,
-                )
+                token = transparent_token
 
             output_row.append(token)
 
@@ -561,7 +508,7 @@ def convert_bitmap_to_xpm(
         )
 
     # ------------------------------------------------------------------------
-    # Assemble XPM.
+    # XPM header.
     # ------------------------------------------------------------------------
     xpm = []
 
@@ -572,16 +519,6 @@ def convert_bitmap_to_xpm(
     xpm.extend(colour_lines)
     xpm.extend(bitmap_lines)
 
-    info(
-        f"  XPM: width={width}, height={len(rows)}, "
-        f"colors={colour_count}, cpp={cpp}"
-    )
-
-    if has_transparency:
-        info(
-            f"  XPM: transparency token={transparent_token!r}"
-        )
-
     return xpm
 
 
@@ -590,15 +527,10 @@ def convert_bitmap_to_xpm(
 # ============================================================================
 
 def translate_property(key, value):
-    """
-    Translate normal TYPWiz properties.
-
-    Color= and Line= are deliberately excluded because they are converted
-    into standard XPM.
-    """
     key_text = decode_text(key).strip()
     value_text = decode_text(value).strip()
 
+    # These are converted into XPM separately.
     if key_text in {"Color", "Line"}:
         return None
 
@@ -652,11 +584,11 @@ def parse_element(
         key, value = split_key_value_binary(raw_line)
 
         # --------------------------------------------------------------------
-        # Raw Color= entry.
+        # Color=
         # --------------------------------------------------------------------
         if key == b"Color":
 
-            # Empty Color= entries occur in the source.
+            # Empty Color= entries exist in the source.
             if not value:
                 if DEBUG:
                     info(
@@ -711,16 +643,20 @@ def parse_element(
             )
 
         # --------------------------------------------------------------------
-        # Raw Line= bitmap row.
+        # Line=
         # --------------------------------------------------------------------
         elif key == b"Line":
+            # Keep this completely binary.
             bitmap_rows.append(value)
 
         # --------------------------------------------------------------------
         # Ordinary property.
         # --------------------------------------------------------------------
         else:
-            translated = translate_property(key, value)
+            translated = translate_property(
+                key,
+                value,
+            )
 
             if translated is not None:
                 properties.append(translated)
@@ -769,7 +705,7 @@ def parse_project(data, *, filename):
         section = section_name(raw_line)
 
         # ====================================================================
-        # Project
+        # [Project]
         # ====================================================================
         if section == "Project":
             i += 1
@@ -847,7 +783,6 @@ def emit_element(
     element_index,
 ):
     section = element["section"]
-
     output_section = SECTION_MAP[section]
 
     output = []
@@ -856,19 +791,14 @@ def emit_element(
         f"[{output_section}]"
     )
 
-    # ------------------------------------------------------------------------
     # Normal properties.
-    # ------------------------------------------------------------------------
     for prop in element["properties"]:
         output.append(prop)
 
-    # ------------------------------------------------------------------------
-    # Bitmap -> XPM.
-    # ------------------------------------------------------------------------
+    # Bitmap.
     bitmap_rows = element["bitmap_rows"]
 
     if bitmap_rows:
-
         xpm = convert_bitmap_to_xpm(
             bitmap_rows,
             element["colours"],
@@ -877,30 +807,19 @@ def emit_element(
             element_index=element_index,
         )
 
-        # mkgmap's standard syntax uses:
-        #
-        #   DayXpm
-        #
-        # for POIs.
-        #
-        # For lines/polygons it uses:
-        #
-        #   Xpm
-        #
+        # POI uses DayXpm.
         if output_section == "_point":
-            output.append(xpm[0].replace("Xpm=", "DayXpm=", 1))
+            output.append(
+                xpm[0].replace(
+                    "Xpm=",
+                    "DayXpm=",
+                    1,
+                )
+            )
         else:
             output.append(xpm[0])
 
         output.extend(xpm[1:])
-
-    # ------------------------------------------------------------------------
-    # No bitmap.
-    #
-    # Retain colours only as diagnostics/comments would be misleading;
-    # Color=/Line= are part of the TYPWiz representation, not standard
-    # mkgmap element properties.
-    # ------------------------------------------------------------------------
 
     output.append("[_end]")
 
@@ -918,19 +837,18 @@ def convert(input_path, output_path):
     info(f"Output: {output_path}")
     info("Input : BINARY")
     info(f"Text  : {TEXT_ENCODING.upper()}")
-    info("XPM   : ASCII, cpp=2")
+    info("XPM   : ASCII")
+    info("XPM   : cpp=1 unless cpp=2 is required")
     info("=" * 70)
 
     # ------------------------------------------------------------------------
-    # BINARY read.
+    # Read as binary.
     # ------------------------------------------------------------------------
     info(
         f"Reading binary input: {input_path}"
     )
 
-    input_file = Path(input_path)
-
-    data = input_file.read_bytes()
+    data = Path(input_path).read_bytes()
 
     info(
         f"Read {len(data)} bytes"
@@ -982,7 +900,7 @@ def convert(input_path, output_path):
     )
 
     # ------------------------------------------------------------------------
-    # UTF-8 output.
+    # Write UTF-8.
     # ------------------------------------------------------------------------
     info(
         f"Writing UTF-8 output: {output_path}"
