@@ -16,20 +16,14 @@ SECTION_MAP = {
     "POLYGON": "_polygon",
 }
 
-DEBUG = True
-
-# The .typ.prj file is fundamentally a byte-oriented file.
-# Ordinary textual fields are decoded with Latin-1 because the file contains
-# bytes which are not valid UTF-8.
 TEXT_ENCODING = "latin-1"
-
-# Output .typ.txt is UTF-8, while generated XPM colour/pixel characters are
-# restricted to ASCII.
 OUTPUT_ENCODING = "utf-8"
+
+DEBUG = True
 
 
 # ============================================================================
-# Exceptions / diagnostics
+# Diagnostics
 # ============================================================================
 
 class ConversionError(Exception):
@@ -70,35 +64,28 @@ def fail(
 
 
 # ============================================================================
-# Binary input helpers
+# Binary input
 # ============================================================================
 
 def strip_binary_newline(line):
-    """
-    Remove only the physical line ending.
-
-    The rest of the bytes are preserved exactly.
-    """
     if line.endswith(b"\r\n"):
         return line[:-2]
-    if line.endswith(b"\n") or line.endswith(b"\r"):
+
+    if line.endswith(b"\n"):
         return line[:-1]
+
+    if line.endswith(b"\r"):
+        return line[:-1]
+
     return line
 
 
 def split_key_value_binary(line):
-    """
-    Split a binary line at the first '='.
-
-    Returns:
-        (key_bytes, value_bytes)
-
-    Both are still raw bytes.
-    """
     if b"=" not in line:
         return line.strip(), b""
 
     key, value = line.split(b"=", 1)
+
     return key.strip(), value.strip()
 
 
@@ -106,50 +93,30 @@ def is_section_line(line):
     stripped = line.strip()
 
     return (
-        stripped.startswith(b"[")
+        len(stripped) >= 3
+        and stripped.startswith(b"[")
         and stripped.endswith(b"]")
-        and len(stripped) >= 3
     )
 
 
 def section_name(line):
     stripped = line.strip()
+
     return stripped[1:-1].decode(TEXT_ENCODING)
 
 
 def is_comment(line):
     stripped = line.lstrip()
+
     return stripped.startswith(b";") or stripped.startswith(b"#")
 
 
 def decode_text(value):
-    """
-    Decode ordinary TYP text as Latin-1.
-
-    Latin-1 is deliberate: every byte 0x00..0xFF maps to exactly one Unicode
-    code point, so no byte sequence can be lost or rejected.
-    """
     return value.decode(TEXT_ENCODING)
 
 
-def decode_ascii(value, *, filename, section, key):
-    """
-    Decode data which we expect to be ASCII after conversion.
-    """
-    try:
-        return value.decode("ascii")
-    except UnicodeDecodeError as exc:
-        fail(
-            f"Expected ASCII data but found byte 0x{value[exc.start]:02x}",
-            filename=filename,
-            section=section,
-            key=key,
-            raw=value,
-        )
-
-
 # ============================================================================
-# Numeric helpers
+# General parsing
 # ============================================================================
 
 def parse_int(value, default=0):
@@ -169,177 +136,164 @@ def parse_int(value, default=0):
 
 def rgb(value):
     """
-    Keep RGB values in the form expected by mkgmap.
+    Convert a Garmin/TYP RGB value into XPM's #RRGGBB form.
 
-    Examples:
+    Input examples:
+
         0xffffff
         0x123456
+        ffffff
+
+    Output:
+
+        #ffffff
+        #123456
     """
     value = value.strip()
 
     if not value:
-        return "0x000000"
+        return "#000000"
 
-    if value.lower().startswith("0x"):
-        number = int(value, 16)
-    else:
-        number = int(value, 0)
+    try:
+        if value.lower().startswith("0x"):
+            number = int(value, 16)
+        else:
+            number = int(value, 16)
+    except ValueError as exc:
+        raise ConversionError(
+            f"Invalid RGB value {value!r}: {exc}"
+        )
 
     number &= 0xFFFFFF
 
-    return f"0x{number:06x}"
+    return f"#{number:06x}"
 
-
-# ============================================================================
-# TYP property parsing
-# ============================================================================
 
 def parse_string(value):
-    """
-    Parse:
-
-        String=4,sea
-
-    into:
-
-        (language, text)
-
-    If no comma exists, preserve the whole value as text.
-    """
     value = value.strip()
 
     if "," not in value:
         return None, value
 
-    lang, text = value.split(",", 1)
+    language, text = value.split(",", 1)
 
-    lang = lang.strip()
+    language = language.strip()
     text = text.strip()
 
     try:
-        language = int(lang, 0)
+        language_value = int(language, 0)
     except ValueError:
-        language = lang
+        language_value = language
 
-    return language, text
+    return language_value, text
 
 
 # ============================================================================
-# XPM character handling
+# XPM character generation
 # ============================================================================
 
-def safe_xpm_characters():
+def xpm_character_set():
     """
-    Return printable ASCII characters suitable for generated XPM data.
+    Safe printable ASCII characters for XPM tokens.
 
-    We deliberately exclude:
+    XPM supports arbitrary character strings as colour identifiers.
 
-        space       - previously caused mkgmap "Tag ' '" errors
-        double quote - awkward inside quoted XPM lines
-        backslash   - awkward in escaped text
-        0           - reserved by the TYP/mkgmap representation for
-                      transparency
+    We avoid:
 
-    More importantly, the generated Color key and its following bitmap
-    character must both be safe ASCII characters.
+        space
+        "
+        \\
 
-    mkgmap's TYP bitmap convention observed in the source files is:
+    because they complicate quoted XPM strings.
 
-        Color=<key>,...
-        bitmap=<key + 1>
+    We deliberately do NOT use the old one-character TYPWiz scheme here.
 
-    Therefore a colour key may only be selected if key+1 is also a safe
-    printable ASCII character.
+    With cpp=2, 87 characters gives:
+
+        87 * 87 = 7569
+
+    possible colour tokens.
+
+    That is vastly more than the maximum needed by this converter.
     """
-    result = []
+    chars = []
 
     for code in range(0x21, 0x7F):
         char = chr(code)
 
-        # Reserved / inconvenient characters.
         if char in {" ", '"', "\\"}:
             continue
 
-        # Never use ASCII '0' as a colour key because it is the transparent
-        # bitmap pixel.
-        if char == "0":
-            continue
+        chars.append(char)
 
-        next_code = code + 1
-
-        # The bitmap character must also be printable ASCII and safe.
-        if next_code > 0x7E:
-            continue
-
-        next_char = chr(next_code)
-
-        if next_char in {" ", '"', "\\"}:
-            continue
-
-        if next_char == "0":
-            continue
-
-        result.append(char)
-
-    return result
+    return chars
 
 
-XPM_PALETTE_CHARS = safe_xpm_characters()
+XPM_CHARS = xpm_character_set()
 
 
-def make_xpm_palette(colours, *, filename, section, element_index):
+def generate_xpm_tokens(count, cpp=2):
     """
-    Build an ASCII palette for the output XPM.
+    Generate unique ASCII XPM colour tokens.
 
-    `colours` is a list of:
+    For cpp=2 this produces:
 
-        (source_color_key_byte, rgb_string)
+        !!
+        !#
+        !$
+        ...
+        ~}
 
-    The generated Color key is ASCII.
+    etc., excluding unsafe characters.
 
-    IMPORTANT:
-
-        output Color=C,rgb
-
-    corresponds to bitmap pixel:
-
-        chr(ord(C) + 1)
-
-    because that is the convention used by the Garmin/mkgmap TYP format.
-
-    Transparency remains bitmap character '0' and is not represented as a
-    source Color entry.
+    The generated tokens are deterministic.
     """
-    if len(colours) > len(XPM_PALETTE_CHARS):
-        fail(
-            (
-                f"Too many colours ({len(colours)}) for the available "
-                f"ASCII one-character XPM palette ({len(XPM_PALETTE_CHARS)}). "
-                f"This element needs a multi-character XPM representation."
-            ),
-            filename=filename,
-            section=section,
-        )
+    if cpp != 2:
+        raise ValueError("This converter currently generates cpp=2 XPM.")
 
-    palette = {}
+    tokens = []
 
-    for index, (source_key, colour_value) in enumerate(colours):
-        output_key = XPM_PALETTE_CHARS[index]
+    for first in XPM_CHARS:
+        for second in XPM_CHARS:
+            tokens.append(first + second)
 
-        palette[source_key] = {
-            "key": output_key,
-            "pixel": chr(ord(output_key) + 1),
-            "rgb": colour_value,
-        }
+            if len(tokens) >= count:
+                return tokens
 
-    return palette
+    raise ConversionError(
+        f"Unable to create {count} XPM tokens with cpp={cpp}"
+    )
 
 
 # ============================================================================
 # Bitmap conversion
 # ============================================================================
 
-def convert_bitmap(
+def build_source_palette(colours):
+    """
+    Build:
+
+        source Color key byte -> RGB
+
+    from:
+
+        [(key_byte, rgb_string), ...]
+    """
+    palette = {}
+
+    for key_byte, colour_rgb in colours:
+        if key_byte in palette:
+            warn(
+                f"Duplicate Color= key 0x{key_byte:02x}; "
+                f"later definition replaces earlier definition"
+            )
+
+        palette[key_byte] = colour_rgb
+
+    return palette
+
+
+def convert_bitmap_to_xpm(
     rows,
     colours,
     *,
@@ -348,24 +302,19 @@ def convert_bitmap(
     element_index,
 ):
     """
-    Convert raw Garmin bitmap rows into ASCII mkgmap XPM rows.
+    Convert the Garmin/TYPWiz bitmap into standard mkgmap XPM.
 
-    SOURCE CONVENTION
-    -----------------
+    IMPORTANT SOURCE FORMAT:
 
-    The source uses:
+        ASCII '0' (0x30) = transparent
 
-        bitmap '0' = transparent
-
-    and for colour pixels:
-
-        bitmap byte = Color-key byte + 1
+        bitmap byte = Color key byte + 1
 
     Examples:
 
-        Color=0,...  -> bitmap '1'
-        Color=1,...  -> bitmap '2'
-        Color=2,...  -> bitmap '3'
+        Color=0,... -> bitmap '1'
+        Color=1,... -> bitmap '2'
+        Color=2,... -> bitmap '3'
 
     Thus:
 
@@ -373,77 +322,53 @@ def convert_bitmap(
 
     means:
 
-        '3' -> Color key '2'
-        '1' -> Color key '0'
-        '0' -> transparent
+        3 -> Color key 2
+        1 -> Color key 0
+        0 -> transparent
 
-    The crucial point is that ASCII '0' is byte 0x30, NOT numeric byte 0.
+    OUTPUT FORMAT:
+
+        Xpm="width height colours cpp"
+
+        "token c #RRGGBB"
+        "token c none"
+
+        "tokentokentoken..."
     """
+
     info(
-        f"  Converting bitmap: rows={len(rows)}, colors={len(colours)}"
+        f"  Converting bitmap: "
+        f"rows={len(rows)}, colors={len(colours)}"
     )
 
-    palette = make_xpm_palette(
-        colours,
-        filename=filename,
-        section=section,
-        element_index=element_index,
-    )
+    if not rows:
+        fail(
+            "Bitmap contains no rows",
+            filename=filename,
+            section=section,
+        )
 
-    # Map raw source Color-key byte -> generated ASCII bitmap character.
-    source_to_output_pixel = {}
+    width = len(rows[0])
 
-    for source_key, entry in palette.items():
-        source_to_output_pixel[source_key] = entry["pixel"]
+    if width == 0:
+        fail(
+            "Bitmap contains an empty first row",
+            filename=filename,
+            section=section,
+        )
 
-    output_rows = []
-
+    # ------------------------------------------------------------------------
+    # Verify that every row has exactly the same number of source pixels.
+    #
+    # DO NOT pad or truncate anything.
+    # ------------------------------------------------------------------------
     for row_index, row in enumerate(rows):
-        output = []
-
-        for column_index, pixel_byte in enumerate(row):
-
-            # ================================================================
-            # IMPORTANT:
-            #
-            # ASCII '0' (0x30) means transparent.
-            #
-            # Do this BEFORE subtracting one.
-            # ================================================================
-            if pixel_byte == ord("0"):
-                output.append("0")
-                continue
-
-            # Every non-transparent bitmap pixel is Color-key + 1.
-            source_color_key = (pixel_byte - 1) & 0xFF
-
-            if source_color_key not in source_to_output_pixel:
-                fail(
-                    (
-                        "Bitmap references an undefined Color= entry. "
-                        f"pixel_byte=0x{pixel_byte:02x}, "
-                        f"derived_color_key=0x{source_color_key:02x}, "
-                        f"row={row_index}, "
-                        f"column={column_index}, "
-                        f"row_length={len(row)}, "
-                        f"defined_colours={len(colours)}"
-                    ),
-                    filename=filename,
-                    section=section,
-                    key="Line",
-                    raw=row,
-                )
-
-            output.append(source_to_output_pixel[source_color_key])
-
-        output_row = "".join(output)
-
-        # Never silently pad or truncate bitmap rows.
-        if len(output_row) != len(row):
+        if len(row) != width:
             fail(
                 (
-                    "Internal bitmap conversion changed row length: "
-                    f"source={len(row)}, output={len(output_row)}, "
+                    "Bitmap row width mismatch: "
+                    f"expected={width}, "
+                    f"actual={len(row)}, "
                     f"row={row_index}"
                 ),
                 filename=filename,
@@ -452,9 +377,212 @@ def convert_bitmap(
                 raw=row,
             )
 
-        output_rows.append(output_row)
+    source_palette = build_source_palette(colours)
 
-    return palette, output_rows
+    # ------------------------------------------------------------------------
+    # Determine which source colours actually occur in the bitmap.
+    #
+    # This is useful because some TYPWiz files may contain Color= definitions
+    # which aren't referenced by this particular bitmap.
+    # ------------------------------------------------------------------------
+    referenced_keys = set()
+    has_transparency = False
+
+    for row_index, row in enumerate(rows):
+        for column_index, pixel_byte in enumerate(row):
+
+            # ASCII '0' = transparent.
+            if pixel_byte == ord("0"):
+                has_transparency = True
+                continue
+
+            # Bitmap byte is Color key + 1.
+            source_key = (pixel_byte - 1) & 0xFF
+
+            if source_key not in source_palette:
+                fail(
+                    (
+                        "Bitmap references an undefined Color= entry. "
+                        f"pixel_byte=0x{pixel_byte:02x}, "
+                        f"derived_color_key=0x{source_key:02x}, "
+                        f"row={row_index}, "
+                        f"column={column_index}, "
+                        f"row_length={len(row)}, "
+                        f"defined_colours={len(source_palette)}"
+                    ),
+                    filename=filename,
+                    section=section,
+                    key="Line",
+                    raw=row,
+                )
+
+            referenced_keys.add(source_key)
+
+    # ------------------------------------------------------------------------
+    # Preserve Color= ordering from the original file.
+    #
+    # This makes the output easier to compare against the source.
+    # ------------------------------------------------------------------------
+    ordered_keys = []
+
+    for key_byte, _ in colours:
+        if key_byte in referenced_keys and key_byte not in ordered_keys:
+            ordered_keys.append(key_byte)
+
+    # ------------------------------------------------------------------------
+    # Number of XPM colours.
+    #
+    # Transparent is a real XPM colour entry using:
+    #
+    #     c none
+    #
+    # when transparency exists.
+    # ------------------------------------------------------------------------
+    colour_count = len(ordered_keys)
+
+    if has_transparency:
+        colour_count += 1
+
+    # cpp=2 is enough for 108 colours by a huge margin.
+    cpp = 2
+
+    tokens = generate_xpm_tokens(colour_count, cpp=cpp)
+
+    token_index = 0
+    token_for_source_key = {}
+
+    # Reserve first token for transparency if necessary.
+    transparent_token = None
+
+    if has_transparency:
+        transparent_token = tokens[token_index]
+        token_index += 1
+
+    # Assign one token to every actual source colour.
+    for source_key in ordered_keys:
+        token_for_source_key[source_key] = tokens[token_index]
+        token_index += 1
+
+    # ------------------------------------------------------------------------
+    # Build XPM colour definitions.
+    # ------------------------------------------------------------------------
+    colour_lines = []
+
+    if has_transparency:
+        colour_lines.append(
+            f'"{transparent_token} c none"'
+        )
+
+    for source_key in ordered_keys:
+        token = token_for_source_key[source_key]
+        colour_rgb = source_palette[source_key]
+
+        colour_lines.append(
+            f'"{token} c {colour_rgb}"'
+        )
+
+    # ------------------------------------------------------------------------
+    # Convert each source bitmap pixel to a two-character XPM token.
+    # ------------------------------------------------------------------------
+    bitmap_lines = []
+
+    for row_index, row in enumerate(rows):
+        output_row = []
+
+        for column_index, pixel_byte in enumerate(row):
+
+            # ------------------------------------------------------------
+            # CRITICAL:
+            #
+            # ASCII '0' is transparent.
+            #
+            # Do NOT subtract one from it.
+            # ------------------------------------------------------------
+            if pixel_byte == ord("0"):
+                if transparent_token is None:
+                    fail(
+                        (
+                            "Internal error: transparent pixel found "
+                            "without transparent XPM token"
+                        ),
+                        filename=filename,
+                        section=section,
+                        key="Line",
+                        raw=row,
+                    )
+
+                output_row.append(transparent_token)
+                continue
+
+            source_key = (pixel_byte - 1) & 0xFF
+
+            token = token_for_source_key.get(source_key)
+
+            if token is None:
+                fail(
+                    (
+                        "Bitmap references a colour which was not assigned "
+                        f"an XPM token: "
+                        f"pixel_byte=0x{pixel_byte:02x}, "
+                        f"source_color_key=0x{source_key:02x}, "
+                        f"row={row_index}, "
+                        f"column={column_index}"
+                    ),
+                    filename=filename,
+                    section=section,
+                    key="Line",
+                    raw=row,
+                )
+
+            output_row.append(token)
+
+        converted = "".join(output_row)
+
+        expected_length = width * cpp
+
+        if len(converted) != expected_length:
+            fail(
+                (
+                    "Internal XPM row width mismatch: "
+                    f"expected={expected_length}, "
+                    f"actual={len(converted)}, "
+                    f"source_width={width}, "
+                    f"cpp={cpp}, "
+                    f"row={row_index}"
+                ),
+                filename=filename,
+                section=section,
+                key="Line",
+                raw=row,
+            )
+
+        bitmap_lines.append(
+            f'"{converted}"'
+        )
+
+    # ------------------------------------------------------------------------
+    # Assemble XPM.
+    # ------------------------------------------------------------------------
+    xpm = []
+
+    xpm.append(
+        f'Xpm="{width} {len(rows)} {colour_count} {cpp}"'
+    )
+
+    xpm.extend(colour_lines)
+    xpm.extend(bitmap_lines)
+
+    info(
+        f"  XPM: width={width}, height={len(rows)}, "
+        f"colors={colour_count}, cpp={cpp}"
+    )
+
+    if has_transparency:
+        info(
+            f"  XPM: transparency token={transparent_token!r}"
+        )
+
+    return xpm
 
 
 # ============================================================================
@@ -463,18 +591,17 @@ def convert_bitmap(
 
 def translate_property(key, value):
     """
-    Translate ordinary TYPWiz properties to mkgmap syntax.
+    Translate normal TYPWiz properties.
 
-    Bitmap-specific Color= and Line= handling is performed separately.
+    Color= and Line= are deliberately excluded because they are converted
+    into standard XPM.
     """
     key_text = decode_text(key).strip()
     value_text = decode_text(value).strip()
 
-    # These are handled by the bitmap converter.
     if key_text in {"Color", "Line"}:
         return None
 
-    # Keep String= values as text.
     if key_text == "String":
         language, text = parse_string(value_text)
 
@@ -483,12 +610,11 @@ def translate_property(key, value):
 
         return f"String={language},{text}"
 
-    # Numeric properties which mkgmap accepts directly.
     return f"{key_text}={value_text}"
 
 
 # ============================================================================
-# Element parsing
+# Element parser
 # ============================================================================
 
 def parse_element(
@@ -499,12 +625,6 @@ def parse_element(
     filename,
     element_index,
 ):
-    """
-    Parse one [POI], [POLYLINE], [POLYGON], etc. element.
-
-    Returns:
-        (element_dict, next_index)
-    """
     properties = []
     colours = []
     bitmap_rows = []
@@ -531,14 +651,19 @@ def parse_element(
 
         key, value = split_key_value_binary(raw_line)
 
+        # --------------------------------------------------------------------
+        # Raw Color= entry.
+        # --------------------------------------------------------------------
         if key == b"Color":
-            # Empty Color= lines exist in the source and should not create
-            # bogus palette entries.
+
+            # Empty Color= entries occur in the source.
             if not value:
                 if DEBUG:
                     info(
-                        f"  Ignoring empty Color= in element {element_index}"
+                        f"  Ignoring empty Color= "
+                        f"in element {element_index}"
                     )
+
                 i += 1
                 continue
 
@@ -559,7 +684,7 @@ def parse_element(
             if len(color_key) != 1:
                 fail(
                     (
-                        "Color= key is not exactly one raw byte: "
+                        "Color= key must contain exactly one raw byte: "
                         f"length={len(color_key)}"
                     ),
                     filename=filename,
@@ -569,22 +694,31 @@ def parse_element(
                 )
 
             try:
-                color_rgb = rgb(decode_text(color_value))
+                colour_rgb = rgb(
+                    decode_text(color_value)
+                )
             except Exception as exc:
                 fail(
-                    f"Invalid Color RGB value: {exc}",
+                    f"Invalid Color= RGB value: {exc}",
                     filename=filename,
                     section=section,
                     key="Color",
                     raw=value,
                 )
 
-            colours.append((color_key[0], color_rgb))
+            colours.append(
+                (color_key[0], colour_rgb)
+            )
 
+        # --------------------------------------------------------------------
+        # Raw Line= bitmap row.
+        # --------------------------------------------------------------------
         elif key == b"Line":
-            # Keep bitmap rows completely raw.
             bitmap_rows.append(value)
 
+        # --------------------------------------------------------------------
+        # Ordinary property.
+        # --------------------------------------------------------------------
         else:
             translated = translate_property(key, value)
 
@@ -593,31 +727,24 @@ def parse_element(
 
         i += 1
 
-    element = {
+    return {
         "section": section,
         "properties": properties,
         "colours": colours,
         "bitmap_rows": bitmap_rows,
-    }
-
-    return element, i
+    }, i
 
 
 # ============================================================================
-# Project parsing
+# Project parser
 # ============================================================================
 
 def parse_project(data, *, filename):
-    """
-    Parse the entire .prj file from raw bytes.
-
-    Returns:
-        project properties
-        elements
-    """
     lines = data.splitlines(keepends=True)
 
-    info(f"Input contains {len(lines)} binary lines")
+    info(
+        f"Input contains {len(lines)} binary lines"
+    )
 
     project_properties = []
     elements = []
@@ -641,9 +768,9 @@ def parse_project(data, *, filename):
 
         section = section_name(raw_line)
 
-        # ------------------------------------------------------------
-        # Project section
-        # ------------------------------------------------------------
+        # ====================================================================
+        # Project
+        # ====================================================================
         if section == "Project":
             i += 1
 
@@ -660,18 +787,23 @@ def parse_project(data, *, filename):
                 if raw.strip() and not is_comment(raw):
                     key, value = split_key_value_binary(raw)
 
-                    translated = translate_property(key, value)
+                    translated = translate_property(
+                        key,
+                        value,
+                    )
 
                     if translated is not None:
-                        project_properties.append(translated)
+                        project_properties.append(
+                            translated
+                        )
 
                 i += 1
 
             continue
 
-        # ------------------------------------------------------------
-        # Elements
-        # ------------------------------------------------------------
+        # ====================================================================
+        # Graphical element
+        # ====================================================================
         if section in SECTION_MAP:
             element, next_i = parse_element(
                 lines,
@@ -682,6 +814,7 @@ def parse_project(data, *, filename):
             )
 
             elements.append(element)
+
             i = next_i
             continue
 
@@ -714,67 +847,60 @@ def emit_element(
     element_index,
 ):
     section = element["section"]
+
     output_section = SECTION_MAP[section]
 
     output = []
 
-    output.append(f"[{output_section}]")
+    output.append(
+        f"[{output_section}]"
+    )
 
+    # ------------------------------------------------------------------------
+    # Normal properties.
+    # ------------------------------------------------------------------------
     for prop in element["properties"]:
         output.append(prop)
 
-    colours = element["colours"]
+    # ------------------------------------------------------------------------
+    # Bitmap -> XPM.
+    # ------------------------------------------------------------------------
     bitmap_rows = element["bitmap_rows"]
 
     if bitmap_rows:
-        palette, converted_rows = convert_bitmap(
+
+        xpm = convert_bitmap_to_xpm(
             bitmap_rows,
-            colours,
+            element["colours"],
             filename=filename,
             section=section,
             element_index=element_index,
         )
 
-        # ------------------------------------------------------------
-        # Emit Color= entries.
+        # mkgmap's standard syntax uses:
         #
-        # The generated key is one character before the bitmap pixel.
+        #   DayXpm
         #
-        # Example:
+        # for POIs.
         #
-        #     Color=A,0xffffff
+        # For lines/polygons it uses:
         #
-        # bitmap pixel:
+        #   Xpm
         #
-        #     B
-        #
-        # Transparency is always bitmap character '0'.
-        # ------------------------------------------------------------
-        for source_key, entry in palette.items():
-            output.append(
-                f"Color={entry['key']},{entry['rgb']}"
-            )
+        if output_section == "_point":
+            output.append(xpm[0].replace("Xpm=", "DayXpm=", 1))
+        else:
+            output.append(xpm[0])
 
-        for row in converted_rows:
-            output.append(f"Line={row}")
+        output.extend(xpm[1:])
 
-    else:
-        # Elements without bitmap rows still retain their Color= definitions.
-        #
-        # Since there is no bitmap, these are emitted using the same safe
-        # ASCII colour-key convention.
-        if colours:
-            palette = make_xpm_palette(
-                colours,
-                filename=filename,
-                section=section,
-                element_index=element_index,
-            )
-
-            for source_key, entry in palette.items():
-                output.append(
-                    f"Color={entry['key']},{entry['rgb']}"
-                )
+    # ------------------------------------------------------------------------
+    # No bitmap.
+    #
+    # Retain colours only as diagnostics/comments would be misleading;
+    # Color=/Line= are part of the TYPWiz representation, not standard
+    # mkgmap element properties.
+    # ------------------------------------------------------------------------
 
     output.append("[_end]")
 
@@ -782,7 +908,7 @@ def emit_element(
 
 
 # ============================================================================
-# Main conversion
+# Conversion
 # ============================================================================
 
 def convert(input_path, output_path):
@@ -792,20 +918,23 @@ def convert(input_path, output_path):
     info(f"Output: {output_path}")
     info("Input : BINARY")
     info(f"Text  : {TEXT_ENCODING.upper()}")
-    info("XPM   : ASCII")
+    info("XPM   : ASCII, cpp=2")
     info("=" * 70)
 
     # ------------------------------------------------------------------------
-    # Read BINARY.
-    #
-    # Do NOT use read_text() and do NOT decode the whole file as UTF-8.
+    # BINARY read.
     # ------------------------------------------------------------------------
-    info(f"Reading binary input: {input_path}")
+    info(
+        f"Reading binary input: {input_path}"
+    )
 
-    path = Path(input_path)
-    data = path.read_bytes()
+    input_file = Path(input_path)
 
-    info(f"Read {len(data)} bytes")
+    data = input_file.read_bytes()
+
+    info(
+        f"Read {len(data)} bytes"
+    )
 
     # ------------------------------------------------------------------------
     # Parse.
@@ -815,7 +944,9 @@ def convert(input_path, output_path):
         filename=str(input_path),
     )
 
-    info(f"Parsed {len(elements)} graphical elements")
+    info(
+        f"Parsed {len(elements)} graphical elements"
+    )
 
     # ------------------------------------------------------------------------
     # Emit.
@@ -828,7 +959,10 @@ def convert(input_path, output_path):
 
     total = len(elements)
 
-    for index, element in enumerate(elements, start=1):
+    for index, element in enumerate(
+        elements,
+        start=1,
+    ):
         info(
             f"Emitting element {index}/{total} "
             f"[{element['section']}]"
@@ -842,12 +976,17 @@ def convert(input_path, output_path):
             )
         )
 
-    output_text = "\n".join(output_lines) + "\n"
+    output_text = (
+        "\n".join(output_lines)
+        + "\n"
+    )
 
     # ------------------------------------------------------------------------
-    # Write UTF-8 output.
+    # UTF-8 output.
     # ------------------------------------------------------------------------
-    info(f"Writing UTF-8 output: {output_path}")
+    info(
+        f"Writing UTF-8 output: {output_path}"
+    )
 
     Path(output_path).write_text(
         output_text,
@@ -857,7 +996,10 @@ def convert(input_path, output_path):
 
     info("=" * 70)
     info("Conversion completed successfully")
-    info(f"Output size: {len(output_text.encode(OUTPUT_ENCODING))} bytes")
+    info(
+        "Output size: "
+        f"{len(output_text.encode(OUTPUT_ENCODING))} bytes"
+    )
     info("=" * 70)
 
 
@@ -877,15 +1019,24 @@ def main():
     output_path = sys.argv[2]
 
     try:
-        convert(input_path, output_path)
+        convert(
+            input_path,
+            output_path,
+        )
 
     except ConversionError as exc:
-        print(str(exc), file=sys.stderr)
+        print(
+            str(exc),
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     except Exception as exc:
         print(
-            f"ERROR | unexpected exception: {type(exc).__name__}: {exc}",
+            (
+                "ERROR | unexpected exception: "
+                f"{type(exc).__name__}: {exc}"
+            ),
             file=sys.stderr,
         )
         sys.exit(1)
