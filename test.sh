@@ -1,6 +1,11 @@
 #!/bin/bash
 
 
+set -e 
+# Unmatched globs expand to nothing (so an empty source list skips cleanly instead of
+# running against a literal "*.prj" path). Set once here for the whole script.
+shopt -s nullglob
+
 # Wipe stale output first (same mapid -> duplicate entries otherwise).
 rm -rf tmp/split tmp/gmapsupp.img
 
@@ -18,10 +23,18 @@ java -Xmx48G -jar bin/splitter-r654/splitter.jar \
      --polygon-file=polygons/great-britain.poly \
      --geonames-file=data/cities15000.zip \
      --precomp-sea=data/sea-latest.zip \
-     --description="GB openfietsnew" \
+     --description="GB openfietsnewer" \
      --output-dir=tmp/split tmp/uk-ele.pbf
 
-# 3) mkgmap → gmapsupp.img   (fid=2114; uses the precompiled .typ binary, no gmt needed)
+# Compile every TYP style source under styles/typ from text -> binary .typ.
+# Globbing instead of a hand-written list means edited types can never go stale: any new
+# *.prj added here is compiled automatically, so there's nothing to keep in sync with mkgmap.
+for style in styles/typ/*.typ.txt; do
+    style="${style%.typ.txt}"
+    java -cp bin/mkgmap-r4924/mkgmap.jar uk.me.parabola.mkgmap.main.TypCompiler "${style}.typ.txt" -o "${style}.typ" 
+done
+
+# 3) mkgmap → gmapsupp.img   (fid=2114; binary .typ compiled from source above, no gmt needed)
 #    bounds -> addresses / administrative boundaries / derived POIs. Missing before = incomplete map.
 java -Xmx62G -jar bin/mkgmap-r4924/mkgmap.jar \
      --read-config=styles/openfietsnew/template.args \
