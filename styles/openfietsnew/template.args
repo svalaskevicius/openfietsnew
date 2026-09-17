@@ -1,7 +1,7 @@
 product-id: 1
 draw-priority: 20
-series-name: OpenFietsNew
-family-name: OpenFietsNew
+series-name: OpenFietsNewer
+family-name: OpenFietsNewer
 copyright-message: Map data © openstreetmap.org, Map layout © openfietsmap.nl
 style-file: styles/openfietsnew
 generate-sea: land-tag=natural=background

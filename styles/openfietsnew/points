@@ -1,5 +1,5 @@
 ﻿include 'inc/address';
-
+boundary=national_park & mkgmap:area2poi=true & is_in(boundary,national_park,in_or_on)=false [0x1b00 resolution 16]
 boundary = national_park & name ~ '.*(Naturschutzgebiet|NSG|Naturreservat|NR|domänreservat|Country Park).*'  {set boundary=nature_reserve}
 boundary = national_park & mkgmap:line2poi!=true & national_park!=naturreservat & leisure!=nature_reserve & name=* [0x640e resolution 16]
 boundary=estate  [0x0b00 resolution 23]
@@ -13,6 +13,7 @@ landuse=* & mkgmap:line2poi=true {delete landuse}
 leisure=* & mkgmap:line2poi=true {delete leisure}
 man_made=* & mkgmap:line2poi=true {delete man_made}
 natural=* & mkgmap:line2poi=true {delete natural}
+geological=* & mkgmap:line2poi=true {delete geological}
 rcn_ref=* & mkgmap:line2poi=true {delete rcn_ref}
 place=* & mkgmap:line2poi=true {delete place}
 shop=* & mkgmap:line2poi=true {delete shop}
@@ -40,18 +41,20 @@ rcn_ref=* {name '${rcn_ref}' } [0x0700 resolution 22 continue]
 include 'inc/place';
 
 shop=bicycle [0x2f03 resolution 22]
-# shop=bicycle | amenity=bicycle_repair_station [0x2f03 resolution 22]
-
+# amenity=bicycle_repair_station & (mkgmap:country=NLD | mkgmap:admin_level4="Vlaanderen") {name '${name}' | 'Fietsreparatie station' } [0x2f03 resolution 22]
+# amenity=bicycle_repair_station & (mkgmap:country=DEU | mkgmap:country=AUT) {name '${name}' | 'Fahrrad-Reparaturstation' } [0x2f03 resolution 22]
+# amenity=bicycle_repair_station  {name '${name}' | 'Bicycle repair station' } [0x2f03 resolution 22]
+# amenity=bicycle_wash  {name '${name}' | '${operator}' | 'bike wash' } [0x2f03 resolution 22]
+# shop=* & (service:bicycle:retail=yes | service:bicycle:repair=yes | service:bicycle:tools=yes) [0x2f03 resolution 22]
 # amenity=charging_station & (bicycle=yes | bike=yes | charging=pedelec) & (mkgmap:country=NLD | mkgmap:admin_level4="Vlaanderen") {name 'oplaadpunt ${name}' | 'oplaadpunt' } [0x4400 resolution 24 continue]
 # amenity=charging_station & (bicycle=yes | bike=yes | charging=pedelec) & (mkgmap:country=DEU | mkgmap:country=AUT) {name 'Ladepunkt ${name}' | 'Ladepunkt' } [0x4400 resolution 24 continue]
 # amenity=charging_station & (bicycle=yes | bike=yes | charging=pedelec) & mkgmap:country!=NLD & mkgmap:admin_level4!="Vlaanderen" & mkgmap:country!=DEU & mkgmap:country!=AUT [0x4400 resolution 24 continue]
-
+# 
 # landuse=residential & name=* & source!=AND [0x0600 resolution 23]
 # landuse=residential & name=* & source=AND [0x0900 resolution 23]
 # (admin_level = 11 & boundary = administrative) [0x0900 resolution 23]
-# landuse=industrial & name=* [0x0600 resolution 24]
 
-# man_made=tower & tower:type!=communication  [0x6411 resolution 24 continue]
+# man_made=communications_tower | (man_made=tower & tower:type!=communication) | man_made=observatory [0x6411 resolution 23 continue]
 man_made=windmill  [0x2c00 resolution 24]
 man_made=lighthouse [0x2812 resolution 23]
 
@@ -79,7 +82,7 @@ tourism=hostel  [0x2b02 default_name 'hostel' resolution 24]
 # tourism=motel { name '${name} ${operator}' | '${name}' | '${operator}' } [0x2b01 resolution 24]
 # tourism=museum | amenity=arts_centre [0x2c02 resolution 24]
 tourism=picnic_site | leisure=picnic_table { add mkgmap:housenumber='fireplace:${fireplace}' ; add mkgmap:street='amenity:${amenity}' ; add mkgmap:postal_code='covered:${covered}' ;  } [0x2f0c resolution 24]
-amenity=bench [0x5001 resolution 24]
+# amenity=bench [0x5001 resolution 24]
 #tourism=picnic_site [0x4a00 resolution 24]
 # tourism=resort [0x2b04 resolution 24]
 # tourism=theme_park { name '${name} ${description}' | '${name}' | '${description}' } [0x2c01 resolution 22]
@@ -94,7 +97,7 @@ amenity="bank;atm" { name '${name}' | '${operator}' } [0x2f06 resolution 24 cont
 amenity=bank { name '${name}' | '${operator}' }  [0x2f06 resolution 24]
 amenity=bar [0x2d02 resolution 24 continue]
 #amenity=bench [0x2f0c resolution 24]
-# amenity=biergarten [0x2d02 resolution 24]
+amenity=biergarten [0x2d02 resolution 24]
 # amenity=border_control | barrier=border_control [0x3006 resolution 24]
 amenity=bus_station [0x1101 resolution 24 continue]
 
@@ -147,7 +150,7 @@ building=church | building=chapel | building=cathedral { name '${name}' | '${not
 
 # amenity=police [0x3001 resolution 24]
 # amenity=post_office [0x2f05 resolution 24]
-# amenity=pub [0x2d02 resolution 24]
+amenity=pub [0x2d02 resolution 24]
 # amenity=public_building & name=* [0x3007 resolution 24]
 # amenity=recycling { name '${name} (${operator})' | '${name}' | '${operator}' } [0x2f15 resolution 24]
 # amenity=* & amenity ~ '.*restaurant.*' [0x2a00 resolution 24]
@@ -157,7 +160,7 @@ amenity=supermarket [0x2e02 resolution 24]
 #amenity=taxi [0x1102 resolution 24]
 #amenity=telephone [0x2f12 resolution 24]
 # amenity=theatre [0x2d01 resolution 24]
-# amenity=toilets [0x4e00 default_name 'wc' resolution 24 ]
+amenity=toilets [0x4e00 default_name 'wc' resolution 24 ]
 # amenity=townhall [0x3003 resolution 24]
 # amenity=university [0x2c05 resolution 24]
 # amenity=vending_machine & vending=bicycle_tube [0x2f07 resolution 24 continue]
@@ -179,7 +182,8 @@ amenity=supermarket [0x2e02 resolution 24]
   name '${name|def:} ${ref|def:}';
 }
 
-highway=bus_stop [0x2f08 resolution 24]
+(public_transport=platform | highway=bus_stop) & mkgmap:line2poitype=start [0x2f08 resolution 24]
+(public_transport=platform | highway=bus_stop) & mkgmap:line2poi!=true [0x2f08 resolution 24]
 
 highway=steps & tunnel=yes & (bicycle=yes|bicycle=dismount) & mkgmap:line2poitype=mid [0x2810 resolution 24]
 
@@ -241,6 +245,7 @@ mountain_pass=yes & ele!=* {name '${name|def:}' } [0x6401 resolution 23]
 
 # natural=beach & name=* [0x1e01 resolution 24]
 natural=cave_entrance [0x6601 resolution 24]
+natural=cape [0x6606 resolution 24]
 natural=cliff & name=* [0x6607 resolution 24]
 natural=glacier [0x650a resolution 23]
 
@@ -250,6 +255,7 @@ natural=peak & ele!=* {name '${name|def:}' } [0x6616 resolution 22]
 
 (natural=rock | natural=stone | geological=*) & mkgmap:area2poi!=true {name '${name}' | 'natural=${natural}'| 'geological=${geological}'} [0x6614 resolution 24]
 natural=spring [0x6511 resolution 24]
+waterway=waterfall [0x6508 resolution 24]
 natural=stream [0x6512 resolution 24]
 # natural=tree & name=* [0x6618 resolution 24]
 # natural=volcano [0x2c0c resolution 21]
@@ -343,8 +349,11 @@ toponym=water [0x6603 resolution 24]
 toponym=* [0x1e03 resolution 24]
 
 # pois from lines
-bicycle:conditional=* & mkgmap:line2poitype=start { name 'bicycle=${bicycle:conditional}' } [0x1108 resolution 24]
-# access:conditional=* & bicycle!=* { name 'access=${access:conditional}' } [0x1108 resolution 24]
+mkgmap:line2poitype=start & (bridge=* | tunnel=*) & mkgmap:way-length>20 & bicycle!=no & bicycle!=permissive & vehicle!=no & (bicycle:conditional=* | access:conditional=* | vehicle:conditional=*)  { name 'bicycle=${bicycle:conditional}' | 'access=${access:conditional}'|  'vehicle=${vehicle:conditional}'} [0x2809 resolution 22]
+mkgmap:line2poitype=end & (bridge=* | tunnel=*) & mkgmap:way-length>15 & bicycle!=no & bicycle!=permissive & vehicle!=no & (bicycle:conditional=* | access:conditional=* | vehicle:conditional=*)  { name 'bicycle=${bicycle:conditional}' | 'access=${access:conditional}'|  'vehicle=${vehicle:conditional}'} [0x2809 resolution 22]
+access:conditional=* & access:conditional ~ '!(sunset|sunrise|destination)' & bicycle!=no & bicycle!=permissive & vehicle!=no { name 'access=${access:conditional}' } [0x1108 resolution 24]
+bicycle:conditional=* & bicycle:conditional ~ '!(sunset|sunrise|destination)' { name 'bicycle=${bicycle:conditional}' } [0x1108 resolution 24]
+vehicle:conditional=* & vehicle:conditional ~ '!(sunset|sunrise|destination)' { name 'vehicle=${vehicle:conditional}' } [0x1108 resolution 24]
 scenic=yes & mkgmap:line2poitype=mid {delete 'name'} [0x5200 resolution 23]
 (highway=cycleway | bicycle=yes | bicycle=permissive | bicycle=designated) & opening_hours=* & route!=ferry & mkgmap:line2poitype=mid { name 'open (${opening_hours})' } [0x2808 resolution 24]
 highway=* & highway!=motorway & highway!=motorway_link & highway!=trunk & highway!=trunk_link & highway!=footway & bicycle!=no & (toll=yes | toll:bicycle=yes) & toll:bicycle!=no & service!=parking_aisle & mkgmap:line2poitype=mid {delete 'name'; delete 'ref';} [0x2811 resolution 24]

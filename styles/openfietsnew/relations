@@ -99,7 +99,59 @@ type=route & name ~ '(EuroVelo 12).*' {set name="North Sea Cycle Route"}
 type=route & name ~ '(EuroVelo 13).*' {set name="Iron Curtain Trail"}
 type=route & name ~ '(EuroVelo 15).*' {set name="Rhine Route"}
 
-network=icn & state!=proposed
+route=bicycle & ref="LF-K"
+	{
+		apply {
+		set icn_from_relation=yes;
+		set iname="Noordzeefietsroute";
+		set iref="EV12";
+	} 
+	}
+
+route=bicycle & ref="LF-M"
+	{
+		apply {
+		set icn_from_relation=yes;
+		set iname="Maasfietsroute";
+		set iref="EV19";
+	} 
+	}
+
+route=bicycle & ref="Rijn"
+	{
+		apply {
+		set icn_from_relation=yes;
+		set iname="Rijnfietsroute";
+		set iref="EV15";
+	} 
+	}
+	
+	route=bicycle & ref="LF13"
+	{
+		apply {
+		set icn_from_relation=yes;
+		set iname="Centraal Europe Route";
+		set iref="EV4";
+	} 
+	}
+route=bicycle & ref="LF4" & name!="Midden-Nederlandroute - 08 - Borculo - Enschede"
+	{
+		apply {
+		set icn_from_relation=yes;
+		set iname="Hoofdstedenroute";
+		set iref="EV2";
+	} 
+	}
+
+route=bicycle & ref="R1;D3"
+	{
+		apply {
+		set icn_from_relation=yes;
+		set iname="Hauptstadt-Route";
+		set iref="EV2";
+	} 
+	}	
+network=icn
 	{
 		apply {
 		set icn_from_relation=yes;
@@ -135,7 +187,15 @@ type=route & route=bicycle & network=rcn & state!=proposed
 		set rcn_from_relation=yes;
 		set cn_blue=yes;
 		set rname='${name}';
-		add rref='${ref}';
+		set rref='$(rref)/${ref}' | '${ref}';
+	} 
+	}
+
+type=route & route=bicycle & network=rcn & network:type!=node_network & state!=proposed
+	{
+		apply { 
+		set cn_blue=yes;
+		set rcn_ref='$(rcn_ref)/${ref}' | '${ref}';
 	}
 	}
 
