@@ -435,9 +435,7 @@ def convert_bitmap_to_xpm(
     if has_transparency:
         transparent_token = tokens[vis_colour_count]
 
-    print(tokens)
     token_index = 0
-    print(colour_count)
 
     token_for_source_key = {}
 
@@ -464,7 +462,6 @@ def convert_bitmap_to_xpm(
         )
 
 
-    print(colour_lines)
     # ------------------------------------------------------------------------
     # Bitmap.
     # ------------------------------------------------------------------------
@@ -519,6 +516,41 @@ def convert_bitmap_to_xpm(
     xpm.extend(colour_lines)
     xpm.extend(bitmap_lines)
 
+    # Count palette colour definitions and how many are opaque (not "none"). mkgmap rejects a [_line]/[_polygon] whose only colours are transparent, so inject one unused opaque colour to let the section compile. Row data still references only transparency and therefore draws nothing (empty art).
+    colour_defs = [l for l in xpm[1:] if len(l.strip().strip('"').split()) == 3]
+    opaque_count = sum(1 for l in colour_defs if "none" not in l)
+
+    if colour_defs and opaque_count == 0:
+        xpm.insert(1, '"! c #000000"')
+        parts = xpm[0][len('Xpm="'):].rstrip('"').split()
+        w, h, n, cpp = int(parts[0]), int(parts[1]), int(parts[2]), parts[3]
+        xpm[0] = f'Xpm="{w} {h} {n + 1} {cpp}"'
+
+    return xpm
+
+
+def solid_pattern_xpm(colours):
+    """mkgmap's compact empty-pixmap form, used when an element has no bitmap art.
+
+    TypCompiler requires a bare Xpm tag on every [_line] and [_polygon] section, so one
+    without any source Line= art is given `Xpm="0 0 N 0"` plus its Colour(s).  For a
+    [_line] the geometry comes from the already-emitted LineWidth/BorderWidth tags; for a
+    [_polygon] it draws a solid fill (one colour, or day/night with two).  With one
+    colour it is `Xpm="0 0 1 0"`; with two colours `Xpm="0 0 2 0"`.  Falls back to black
+    if there is nothing else to use.
+    """
+    first = colours[0][1] if colours and colours[0][1] else "#000000"
+    second = colours[1][1] if len(colours) > 1 and colours[1][1] else None
+
+    xpm = []
+    if second:
+        xpm.append('Xpm="0 0 2 0"')
+        xpm.append(f'"a c {first}"')
+        xpm.append(f'"b c {second}"')
+    else:
+        xpm.append('Xpm="0 0 1 0"')
+        xpm.append(f'"a c {first}"')
+
     return xpm
 
 
@@ -546,6 +578,69 @@ def translate_property(key, value):
 
 
 # ============================================================================
+# Findings: mkgmap does NOT understand the legacy tags TYPWiz writes.
+#
+#   * TextSize=N            -> FontStyle=<enum>  (mkgmap has no "TextSize")
+#       1 -> NoLabel,2 -> SmallFont   3 -> NormalFont   4 -> LargeFont
+#   * TextColor=#RRGGBB     -> DayCustomColor / NightCustomColor
+#           lightened toward white so labels stay readable against the device's
+#           auto halo.  Verified against committed typ.txt:
+#               day   = round(0.30*src + 0.70*255)
+#               night = round(0.15*src + 0.85*255)
+# ============================================================================
+
+FONT_SIZE_MAP = {
+    "1": "NoLabel",
+    "2": "SmallFont",
+    "3": "NormalFont",
+    "4": "LargeFont",
+}
+
+
+def _to_rgb(value):
+    """Accept #RRGGBB or 0xRRGGBB -> (r, g, b) ints."""
+    value = value.strip()
+    if value.startswith("#"):
+        value = value[1:]
+    elif value[:2].lower() == "0x":
+        value = value[2:]
+    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _rgb_to_hex(rgb):
+    return "#%02x%02x%02x" % rgb
+
+
+def lighten(hex_value, fraction):
+    """Blend a colour toward white by `fraction` (0..1)."""
+    r, g, b = _to_rgb(hex_value)
+    out = lambda c: min(255, round(fraction * c + (1 - fraction) * 255))
+    return (_rgb_to_hex((out(r), out(g), out(b))))
+
+
+def apply_findings(properties):
+    """Translate the two unsupported tags into their mkgmap equivalents.
+
+    Returns a flat list of output lines, in original order: one FontStyle line
+    replaces TextSize=N; Day/NightCustomColor replace TextColor=#hex.  Every
+    other property passes through untouched.
+    """
+    out = []
+    for prop in properties:
+        if prop.startswith("TextSize="):
+            size = prop.split("=", 1)[1].strip()
+            font = FONT_SIZE_MAP.get(size, "SmallFont")
+            out.append(f"FontStyle={font}")
+        elif prop.startswith("TextColor="):
+            hexval = prop.split("=", 1)[1].strip()
+            out.append(f"DayCustomColor={lighten(hexval, 0.30)}")
+            out.append(f"NightCustomColor={lighten(hexval, 0.15)}")
+        else:
+            out.append(prop)
+    return out
+
+
+# ============================================================================
 # Element parser
 # ============================================================================
 
@@ -560,6 +655,7 @@ def parse_element(
     properties = []
     colours = []
     bitmap_rows = []
+    draw_order_level = None  # DrawOrder=N z-level for the [_drawOrder] section
 
     i = start_index
 
@@ -650,6 +746,21 @@ def parse_element(
             bitmap_rows.append(value)
 
         # --------------------------------------------------------------------
+        # DrawOrder=N -> mkgmap expects a [_drawOrder] section, not inline here.
+        # Capture the level; object_type is resolved from the final Type= property
+        # after all keys are collected (so key order does not matter).
+        # --------------------------------------------------------------------
+        elif key == b"DrawOrder":
+            try:
+                draw_order_level = int(decode_text(value).strip())
+            except ValueError as exc:
+                if DEBUG:
+                    info(
+                        f"  Ignoring non-numeric DrawOrder= "
+                        f"in element {element_index}: {exc}"
+                    )
+
+        # --------------------------------------------------------------------
         # Ordinary property.
         # --------------------------------------------------------------------
         else:
@@ -663,11 +774,23 @@ def parse_element(
 
         i += 1
 
+    element_draw_order = None
+
+    if section.upper() == "POLYGON":
+        # Every polygon must appear in [_drawOrder]; default z-level 1 when it defines none.
+        level = draw_order_level if draw_order_level is not None else 1
+        object_type = next(
+            (p.split("=", 1)[1].strip() for p in properties if p.startswith("Type=")),
+            None,
+        )
+        element_draw_order = (object_type, level)
+
     return {
         "section": section,
         "properties": properties,
         "colours": colours,
         "bitmap_rows": bitmap_rows,
+        "draw_order": element_draw_order,
     }, i
 
 
@@ -738,9 +861,10 @@ def parse_project(data, *, filename):
             continue
 
         # ====================================================================
-        # Graphical element
+        # Graphical element (binary names are Title-Case: POI/Polyline/Polygon)
         # ====================================================================
-        if section in SECTION_MAP:
+        canonical = section.upper()
+        if canonical in SECTION_MAP:
             element, next_i = parse_element(
                 lines,
                 i + 1,
@@ -763,15 +887,36 @@ def parse_project(data, *, filename):
 # Output
 # ============================================================================
 
-def emit_project(project_properties):
-    output = []
-
-    output.append("[_project]")
-
+def _family_id(project_properties):
+    """Pull the numeric family id out of [Project] (or default 1)."""
     for prop in project_properties:
-        output.append(prop)
+        if prop.startswith("FamilyID="):
+            value = prop.split("=", 1)[1].strip()
+            try:
+                return int(value, 0)
+            except ValueError:
+                break
+    return 1
 
-    output.append("[_end]")
+
+def emit_project(project_properties):
+    """mkgmap's identity block.
+
+    The binary [Project] carries editor cruft (empty Product=, IMGpath to a
+    stale machine...).  We only keep what TypCompiler needs and normalise it to
+    the committed [_id] shape: CodePage / FID / ProductCode.
+    """
+    family_id = _family_id(project_properties)
+
+    # mkgmap identity block. FID is a fixed small number; the project's
+    # FamilyID becomes ProductCode (20181 here).  Matches committed typ.txt.
+    output = [
+        "[_id]",
+        "CodePage=1252",
+        "FID=1",
+        f"ProductCode={family_id}",
+        "[_end]",
+    ]
 
     return output
 
@@ -783,7 +928,18 @@ def emit_element(
     element_index,
 ):
     section = element["section"]
-    output_section = SECTION_MAP[section]
+    # Binary names are Title-Case; SECTION_MAP keys are UPPER.
+    canonical = section.upper()
+    output_section = SECTION_MAP.get(canonical)
+    if output_section is None:
+        fail(
+            f"Unsupported graphical type {section!r}",
+            filename=filename,
+            section=section,
+        )
+
+    # Apply findings: TextSize->FontStyle and TextColor->Day/Night colors.
+    properties = apply_findings(element["properties"])
 
     output = []
 
@@ -791,14 +947,45 @@ def emit_element(
         f"[{output_section}]"
     )
 
-    # Normal properties.
-    for prop in element["properties"]:
+    # Normal (translated) properties.
+    for prop in properties:
         output.append(prop)
 
-    # Bitmap.
+    # Art handling differs by section type. POIs always carry DayXpm icon art, and
+    # TypCompiler requires a bare Xpm tag on every [_line] and [_polygon] section.
+    # A [_line]/[_polygon] with source Line= art keeps it verbatim (even a fully
+    # transparent pattern: mkgmap simply draws nothing for it). One without any bitmap
+    # is given mkgmap's compact empty-pixmap form -- Xpm="0 0 N 0" plus its Colour(s):
+    # a solid line for [_line] (geometry from the already-emitted LineWidth/BorderWidth)
+    # or a single/two-colour fill for [_polygon], so it always has a valid pattern and
+    # never fails "No XPM tag in section".
     bitmap_rows = element["bitmap_rows"]
 
-    if bitmap_rows:
+    if output_section == "_line":
+        if bitmap_rows:
+            xpm = convert_bitmap_to_xpm(
+                bitmap_rows,
+                element["colours"],
+                filename=filename,
+                section=section,
+                element_index=element_index,
+            )
+        else:
+            # No source bitmap art: emit mkgmap's compact solid-line form (uses width).
+            xpm = solid_pattern_xpm(element["colours"])
+    elif output_section == "_polygon":
+        if not bitmap_rows:
+            # No bitmap; a Colour= gives a solid fill, day/night with two colours.
+            xpm = solid_pattern_xpm(element["colours"])
+        else:
+            xpm = convert_bitmap_to_xpm(
+                bitmap_rows,
+                element["colours"],
+                filename=filename,
+                section=section,
+                element_index=element_index,
+            )
+    else:  # point (unchanged behaviour)
         xpm = convert_bitmap_to_xpm(
             bitmap_rows,
             element["colours"],
@@ -807,19 +994,11 @@ def emit_element(
             element_index=element_index,
         )
 
-        # POI uses DayXpm.
-        if output_section == "_point":
-            output.append(
-                xpm[0].replace(
-                    "Xpm=",
-                    "DayXpm=",
-                    1,
-                )
-            )
-        else:
-            output.append(xpm[0])
-
-        output.extend(xpm[1:])
+    header = xpm[0]
+    if output_section == "_point":
+        header = header.replace("Xpm=", "DayXpm=", 1)
+    output.append(header)
+    output.extend(xpm[1:])
 
     output.append("[_end]")
 
@@ -827,10 +1006,48 @@ def emit_element(
 
 
 # ============================================================================
+# Draw order (polygon z-levels)
+# ============================================================================
+
+def build_draw_order(elements):
+    """Collect mkgmap [_drawOrder] entries from parsed polygon elements.
+
+    Each element carrying a captured draw_order yields one `Type=<object_type>,<level>`
+    line, sorted by level then object type so higher levels render on top and the list
+    is deterministic.  Returns [] when no polygons carry DrawOrder=.
+    """
+    entries = [e["draw_order"] for e in elements if e.get("draw_order")]
+
+    lines = []
+
+    for object_type, level in sorted(entries, key=lambda item: (item[1], item[0] or "")):
+        if not object_type:
+            continue
+        lines.append(f"Type={object_type},{level}")
+
+    return lines
+
+
+# ============================================================================
 # Conversion
 # ============================================================================
 
-def convert(input_path, output_path):
+def convert(
+    input_path,
+    output_path,
+    *,
+    include_line=False,
+    include_polygon=False,
+):
+    """Phase control.
+
+    Default (no flags) = PHASE 1: emit only [_point] sections, reproducing the
+    committed typ/openfietsnew.typ.txt structure.
+
+        --lines            also emit [_line] sections from [Polyline] entries
+        --polygons         also emit [_polygon] sections from [Polygon] entries
+        --all              both of the above (PHASE 2: full mkgmap structure)
+    """
     info("=" * 70)
     info("TYP conversion started")
     info(f"Input : {input_path}")
@@ -875,24 +1092,42 @@ def convert(input_path, output_path):
         emit_project(project_properties)
     )
 
+    # mkgmap requires every polygon type that should render to be listed here with its
+    # z-level (DrawOrder).  Emit it before the [_polygon] sections so ordering is clear.
+    if include_polygon:
+        draw_order_lines = build_draw_order(elements)
+
+        if draw_order_lines:
+            output_lines.append("[_drawOrder]")
+            output_lines.extend(draw_order_lines)
+            output_lines.append("[_end]")
+
     total = len(elements)
 
     for index, element in enumerate(
         elements,
         start=1,
     ):
+        # Phase control: points always; line/polygon opt-in.
+        canonical = element["section"].upper()
+        if canonical == "POLYLINE" and not include_line:
+            continue
+        if canonical == "POLYGON" and not include_polygon:
+            continue
+
         info(
             f"Emitting element {index}/{total} "
             f"[{element['section']}]"
         )
 
-        output_lines.extend(
-            emit_element(
-                element,
-                filename=str(input_path),
-                element_index=index,
-            )
+        emitted = emit_element(
+            element,
+            filename=str(input_path),
+            element_index=index,
         )
+
+        if emitted is not None:
+            output_lines.extend(emitted)
 
     output_text = (
         "\n".join(output_lines)
@@ -926,9 +1161,9 @@ def convert(input_path, output_path):
 # ============================================================================
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) < 3:
         print(
-            f"Usage: {sys.argv[0]} INPUT.typ.prj OUTPUT.typ.txt",
+            f"Usage: {sys.argv[0]} INPUT.typ.prj OUTPUT.typ.txt [--all|--lines|--polygons]",
             file=sys.stderr,
         )
         sys.exit(2)
@@ -936,10 +1171,19 @@ def main():
     input_path = sys.argv[1]
     output_path = sys.argv[2]
 
+    flags = set(sys.argv[3:])
+    if "--all" in flags:
+        include_line = include_polygon = True
+    else:
+        include_line = "--lines" in flags
+        include_polygon = "--polygons" in flags
+
     try:
         convert(
             input_path,
             output_path,
+            include_line=include_line,
+            include_polygon=include_polygon,
         )
 
     except ConversionError as exc:

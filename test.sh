@@ -31,7 +31,7 @@ java -Xmx48G -jar bin/splitter-r654/splitter.jar \
 # *.prj added here is compiled automatically, so there's nothing to keep in sync with mkgmap.
 for style in styles/typ/*.typ.txt; do
     style="${style%.typ.txt}"
-    java -cp bin/mkgmap-r4924/mkgmap.jar uk.me.parabola.mkgmap.main.TypCompiler "${style}.typ.txt" -o "${style}.typ" 
+    java -cp bin/mkgmap-r4924/mkgmap.jar uk.me.parabola.mkgmap.main.TypCompiler "${style}.typ.txt" "${style}.typ" 
 done
 
 # 3) mkgmap → gmapsupp.img   (fid=2114; binary .typ compiled from source above, no gmt needed)
