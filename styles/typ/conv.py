@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 
 import sys
-import traceback
 from pathlib import Path
 
+
+# ============================================================================
+# Configuration
+# ============================================================================
 
 SECTION_MAP = {
     "POI": "_point",
@@ -14,443 +17,416 @@ SECTION_MAP = {
 }
 
 DEBUG = True
+
+# The .typ.prj file is fundamentally a byte-oriented file.
+# Ordinary textual fields are decoded with Latin-1 because the file contains
+# bytes which are not valid UTF-8.
 TEXT_ENCODING = "latin-1"
 
+# Output .typ.txt is UTF-8, while generated XPM colour/pixel characters are
+# restricted to ASCII.
+OUTPUT_ENCODING = "utf-8"
 
-# ============================================================
-# Diagnostics
-# ============================================================
+
+# ============================================================================
+# Exceptions / diagnostics
+# ============================================================================
 
 class ConversionError(Exception):
-    def __init__(
-        self,
-        message,
-        *,
-        filename=None,
-        line_no=None,
-        section=None,
-        key=None,
-        raw=None,
-        offset=None,
-    ):
-        parts = ["ERROR"]
-
-        if filename is not None:
-            parts.append(f"file={filename}")
-
-        if line_no is not None:
-            parts.append(f"line={line_no}")
-
-        if offset is not None:
-            parts.append(f"offset={offset}")
-
-        if section is not None:
-            parts.append(f"section={section}")
-
-        if key is not None:
-            parts.append(f"key={key}")
-
-        parts.append(message)
-
-        if raw is not None:
-            parts.append(f"raw={raw!r}")
-
-        super().__init__(" | ".join(parts))
+    pass
 
 
 def info(message):
-    if DEBUG:
-        print(f"[INFO] {message}", file=sys.stderr)
+    print(f"[INFO] {message}")
 
 
 def warn(message):
-    print(f"[WARN] {message}", file=sys.stderr)
+    print(f"[WARN] {message}")
 
 
 def fail(
     message,
     *,
     filename=None,
-    line_no=None,
     section=None,
     key=None,
     raw=None,
-    offset=None,
 ):
-    raise ConversionError(
-        message,
-        filename=filename,
-        line_no=line_no,
-        section=section,
-        key=key,
-        raw=raw,
-        offset=offset,
-    )
+    parts = ["ERROR"]
+
+    if filename:
+        parts.append(f"file={filename}")
+    if section:
+        parts.append(f"section={section}")
+    if key:
+        parts.append(f"key={key}")
+
+    text = " | ".join(parts) + " | " + message
+
+    if raw is not None:
+        text += f" | raw={raw!r}"
+
+    raise ConversionError(text)
 
 
-# ============================================================
-# Binary helpers
-# ============================================================
+# ============================================================================
+# Binary input helpers
+# ============================================================================
 
-def strip_binary_newline(data):
-    if data.endswith(b"\r\n"):
-        return data[:-2]
+def strip_binary_newline(line):
+    """
+    Remove only the physical line ending.
 
-    if data.endswith(b"\n"):
-        return data[:-1]
-
-    if data.endswith(b"\r"):
-        return data[:-1]
-
-    return data
+    The rest of the bytes are preserved exactly.
+    """
+    if line.endswith(b"\r\n"):
+        return line[:-2]
+    if line.endswith(b"\n") or line.endswith(b"\r"):
+        return line[:-1]
+    return line
 
 
 def split_key_value_binary(line):
-    pos = line.find(b"=")
+    """
+    Split a binary line at the first '='.
 
-    if pos < 0:
-        return None, None
+    Returns:
+        (key_bytes, value_bytes)
 
-    return line[:pos], line[pos + 1:]
+    Both are still raw bytes.
+    """
+    if b"=" not in line:
+        return line.strip(), b""
+
+    key, value = line.split(b"=", 1)
+    return key.strip(), value.strip()
 
 
 def is_section_line(line):
+    stripped = line.strip()
+
     return (
-        len(line) >= 2
-        and line.startswith(b"[")
-        and line.endswith(b"]")
+        stripped.startswith(b"[")
+        and stripped.endswith(b"]")
+        and len(stripped) >= 3
     )
+
+
+def section_name(line):
+    stripped = line.strip()
+    return stripped[1:-1].decode(TEXT_ENCODING)
 
 
 def is_comment(line):
-    return line.startswith(b"#")
+    stripped = line.lstrip()
+    return stripped.startswith(b";") or stripped.startswith(b"#")
 
 
-# ============================================================
-# Text decoding
-# ============================================================
-
-def decode_text(
-    data,
-    *,
-    filename,
-    line_no,
-    section,
-    key,
-    raw=None,
-):
+def decode_text(value):
     """
-    Ordinary TYP text is decoded as Latin-1.
+    Decode ordinary TYP text as Latin-1.
 
-    Latin-1 maps every byte 0x00-0xFF directly to a Unicode
-    codepoint, so raw bytes such as 0xfc do not cause decoding
-    failures.
+    Latin-1 is deliberate: every byte 0x00..0xFF maps to exactly one Unicode
+    code point, so no byte sequence can be lost or rejected.
     """
+    return value.decode(TEXT_ENCODING)
 
+
+def decode_ascii(value, *, filename, section, key):
+    """
+    Decode data which we expect to be ASCII after conversion.
+    """
     try:
-        return data.decode(TEXT_ENCODING)
-
-    except Exception as e:
+        return value.decode("ascii")
+    except UnicodeDecodeError as exc:
         fail(
-            (
-                f"{TEXT_ENCODING} text decode failed: "
-                f"{type(e).__name__}: {e}"
-            ),
+            f"Expected ASCII data but found byte 0x{value[exc.start]:02x}",
             filename=filename,
-            line_no=line_no,
             section=section,
             key=key,
-            raw=raw if raw is not None else data,
+            raw=value,
         )
 
 
-def decode_ascii(
-    data,
-    *,
-    filename,
-    line_no,
-    section,
-    key,
-):
-    try:
-        return data.decode("ascii")
-
-    except UnicodeDecodeError as e:
-        bad = data[e.start] if e.start < len(data) else None
-
-        fail(
-            (
-                "ASCII decode failed. "
-                f"bad_byte="
-                f"{('0x%02x' % bad) if bad is not None else 'EOF'}"
-            ),
-            filename=filename,
-            line_no=line_no,
-            section=section,
-            key=key,
-            raw=data,
-        )
-
-
-def section_name(
-    line,
-    filename,
-    line_no,
-):
-    raw = line[1:-1]
-
-    try:
-        return raw.decode("ascii")
-
-    except UnicodeDecodeError as e:
-        bad = raw[e.start]
-
-        fail(
-            (
-                "Section name contains a non-ASCII byte. "
-                f"bad_byte=0x{bad:02x}"
-            ),
-            filename=filename,
-            line_no=line_no,
-            raw=line,
-        )
-
-
-# ============================================================
+# ============================================================================
 # Numeric helpers
-# ============================================================
+# ============================================================================
 
-def parse_int(
-    value,
-    *,
-    filename,
-    line_no,
-    section,
-    key,
-    raw,
-):
+def parse_int(value, default=0):
     value = value.strip()
 
-    text = decode_ascii(
-        value,
-        filename=filename,
-        line_no=line_no,
-        section=section,
-        key=key,
-    )
+    if not value:
+        return default
 
     try:
-        return int(text, 0)
-
+        return int(value, 0)
     except ValueError:
-        fail(
-            f"invalid integer value {text!r}",
-            filename=filename,
-            line_no=line_no,
-            section=section,
-            key=key,
-            raw=raw,
-        )
+        try:
+            return int(value, 10)
+        except ValueError:
+            return default
 
 
-def rgb(
-    value,
-    *,
-    filename,
-    line_no,
-    section,
-    key,
-    raw,
-):
+def rgb(value):
+    """
+    Keep RGB values in the form expected by mkgmap.
+
+    Examples:
+        0xffffff
+        0x123456
+    """
     value = value.strip()
 
-    text = decode_ascii(
-        value,
-        filename=filename,
-        line_no=line_no,
-        section=section,
-        key=key,
-    )
+    if not value:
+        return "0x000000"
 
-    try:
-        number = int(text, 0)
-
-    except ValueError:
-        fail(
-            f"invalid RGB value {text!r}",
-            filename=filename,
-            line_no=line_no,
-            section=section,
-            key=key,
-            raw=raw,
-        )
+    if value.lower().startswith("0x"):
+        number = int(value, 16)
+    else:
+        number = int(value, 0)
 
     number &= 0xFFFFFF
 
     return f"0x{number:06x}"
 
 
-# ============================================================
-# String properties
-# ============================================================
+# ============================================================================
+# TYP property parsing
+# ============================================================================
 
-def parse_string(
-    value,
-    *,
-    filename,
-    line_no,
-    section,
-    key,
-    raw,
-):
-    comma = value.find(b",")
-
-    if comma < 0:
-        fail(
-            (
-                "String property has no comma. "
-                "Expected format such as String=4,sea"
-            ),
-            filename=filename,
-            line_no=line_no,
-            section=section,
-            key=key,
-            raw=raw,
-        )
-
-    number_part = value[:comma]
-    text_part = value[comma + 1:]
-
-    number = parse_int(
-        number_part,
-        filename=filename,
-        line_no=line_no,
-        section=section,
-        key=key,
-        raw=raw,
-    )
-
-    text = decode_text(
-        text_part,
-        filename=filename,
-        line_no=line_no,
-        section=section,
-        key=key,
-        raw=raw,
-    )
-
-    return number, text
-
-
-# ============================================================
-# XPM palette
-# ============================================================
-
-def palette_characters():
+def parse_string(value):
     """
-    Printable ASCII characters.
+    Parse:
 
-    Space is reserved for transparent pixels.
-    Quote is avoided because XPM uses quoted strings.
+        String=4,sea
+
+    into:
+
+        (language, text)
+
+    If no comma exists, preserve the whole value as text.
     """
+    value = value.strip()
 
-    chars = []
+    if "," not in value:
+        return None, value
 
-    for number in range(33, 127):
-        char = chr(number)
+    lang, text = value.split(",", 1)
 
-        if char == '"':
+    lang = lang.strip()
+    text = text.strip()
+
+    try:
+        language = int(lang, 0)
+    except ValueError:
+        language = lang
+
+    return language, text
+
+
+# ============================================================================
+# XPM character handling
+# ============================================================================
+
+def safe_xpm_characters():
+    """
+    Return printable ASCII characters suitable for generated XPM data.
+
+    We deliberately exclude:
+
+        space       - previously caused mkgmap "Tag ' '" errors
+        double quote - awkward inside quoted XPM lines
+        backslash   - awkward in escaped text
+        0           - reserved by the TYP/mkgmap representation for
+                      transparency
+
+    More importantly, the generated Color key and its following bitmap
+    character must both be safe ASCII characters.
+
+    mkgmap's TYP bitmap convention observed in the source files is:
+
+        Color=<key>,...
+        bitmap=<key + 1>
+
+    Therefore a colour key may only be selected if key+1 is also a safe
+    printable ASCII character.
+    """
+    result = []
+
+    for code in range(0x21, 0x7F):
+        char = chr(code)
+
+        # Reserved / inconvenient characters.
+        if char in {" ", '"', "\\"}:
             continue
 
-        chars.append(char)
+        # Never use ASCII '0' as a colour key because it is the transparent
+        # bitmap pixel.
+        if char == "0":
+            continue
 
-    return chars
+        next_code = code + 1
+
+        # The bitmap character must also be printable ASCII and safe.
+        if next_code > 0x7E:
+            continue
+
+        next_char = chr(next_code)
+
+        if next_char in {" ", '"', "\\"}:
+            continue
+
+        if next_char == "0":
+            continue
+
+        result.append(char)
+
+    return result
 
 
-XPM_CHARS = palette_characters()
+XPM_PALETTE_CHARS = safe_xpm_characters()
 
 
-def make_xpm_palette(raw_color_keys):
+def make_xpm_palette(colours, *, filename, section, element_index):
+    """
+    Build an ASCII palette for the output XPM.
 
-    if len(raw_color_keys) > len(XPM_CHARS):
+    `colours` is a list of:
+
+        (source_color_key_byte, rgb_string)
+
+    The generated Color key is ASCII.
+
+    IMPORTANT:
+
+        output Color=C,rgb
+
+    corresponds to bitmap pixel:
+
+        chr(ord(C) + 1)
+
+    because that is the convention used by the Garmin/mkgmap TYP format.
+
+    Transparency remains bitmap character '0' and is not represented as a
+    source Color entry.
+    """
+    if len(colours) > len(XPM_PALETTE_CHARS):
         fail(
             (
-                "Too many colours for one-character ASCII XPM. "
-                f"defined={len(raw_color_keys)}, "
-                f"available={len(XPM_CHARS)}"
-            )
+                f"Too many colours ({len(colours)}) for the available "
+                f"ASCII one-character XPM palette ({len(XPM_PALETTE_CHARS)}). "
+                f"This element needs a multi-character XPM representation."
+            ),
+            filename=filename,
+            section=section,
         )
 
-    mapping = {}
+    palette = {}
 
-    for raw_key, xpm_char in zip(
-        raw_color_keys,
-        XPM_CHARS,
-    ):
-        mapping[raw_key] = xpm_char
+    for index, (source_key, colour_value) in enumerate(colours):
+        output_key = XPM_PALETTE_CHARS[index]
 
-    return mapping
+        palette[source_key] = {
+            "key": output_key,
+            "pixel": chr(ord(output_key) + 1),
+            "rgb": colour_value,
+        }
+
+    return palette
 
 
-# ============================================================
+# ============================================================================
 # Bitmap conversion
-# ============================================================
+# ============================================================================
 
 def convert_bitmap(
     rows,
-    color_keys,
+    colours,
     *,
     filename,
     section,
+    element_index,
 ):
     """
-    Source relationship:
+    Convert raw Garmin bitmap rows into ASCII mkgmap XPM rows.
 
-        Color=N
-        bitmap pixel=N+1
+    SOURCE CONVENTION
+    -----------------
 
-    Pixel 0 is transparent.
+    The source uses:
 
-    Bitmap rows are not padded or truncated.
+        bitmap '0' = transparent
+
+    and for colour pixels:
+
+        bitmap byte = Color-key byte + 1
+
+    Examples:
+
+        Color=0,...  -> bitmap '1'
+        Color=1,...  -> bitmap '2'
+        Color=2,...  -> bitmap '3'
+
+    Thus:
+
+        b'33333331000013333333'
+
+    means:
+
+        '3' -> Color key '2'
+        '1' -> Color key '0'
+        '0' -> transparent
+
+    The crucial point is that ASCII '0' is byte 0x30, NOT numeric byte 0.
     """
-
-    palette = make_xpm_palette(
-        color_keys
+    info(
+        f"  Converting bitmap: rows={len(rows)}, colors={len(colours)}"
     )
 
-    converted = []
+    palette = make_xpm_palette(
+        colours,
+        filename=filename,
+        section=section,
+        element_index=element_index,
+    )
 
-    for row_index, row in enumerate(
-        rows,
-        1,
-    ):
+    # Map raw source Color-key byte -> generated ASCII bitmap character.
+    source_to_output_pixel = {}
 
+    for source_key, entry in palette.items():
+        source_to_output_pixel[source_key] = entry["pixel"]
+
+    output_rows = []
+
+    for row_index, row in enumerate(rows):
         output = []
 
-        for column, pixel in enumerate(
-            row,
-            1,
-        ):
+        for column_index, pixel_byte in enumerate(row):
 
-            if pixel == 0:
-                output.append(" ")
+            # ================================================================
+            # IMPORTANT:
+            #
+            # ASCII '0' (0x30) means transparent.
+            #
+            # Do this BEFORE subtracting one.
+            # ================================================================
+            if pixel_byte == ord("0"):
+                output.append("0")
                 continue
 
-            color_key = (
-                pixel - 1
-            ) & 0xFF
+            # Every non-transparent bitmap pixel is Color-key + 1.
+            source_color_key = (pixel_byte - 1) & 0xFF
 
-            if color_key not in palette:
+            if source_color_key not in source_to_output_pixel:
                 fail(
                     (
-                        "Bitmap references an undefined "
-                        "Color= entry. "
-                        f"pixel_byte=0x{pixel:02x}, "
-                        f"derived_color_key=0x{color_key:02x}, "
+                        "Bitmap references an undefined Color= entry. "
+                        f"pixel_byte=0x{pixel_byte:02x}, "
+                        f"derived_color_key=0x{source_color_key:02x}, "
                         f"row={row_index}, "
-                        f"column={column}, "
+                        f"column={column_index}, "
                         f"row_length={len(row)}, "
-                        f"defined_colours={len(color_keys)}"
+                        f"defined_colours={len(colours)}"
                     ),
                     filename=filename,
                     section=section,
@@ -458,666 +434,460 @@ def convert_bitmap(
                     raw=row,
                 )
 
-            output.append(
-                palette[color_key]
+            output.append(source_to_output_pixel[source_color_key])
+
+        output_row = "".join(output)
+
+        # Never silently pad or truncate bitmap rows.
+        if len(output_row) != len(row):
+            fail(
+                (
+                    "Internal bitmap conversion changed row length: "
+                    f"source={len(row)}, output={len(output_row)}, "
+                    f"row={row_index}"
+                ),
+                filename=filename,
+                section=section,
+                key="Line",
+                raw=row,
             )
 
-        converted.append(
-            "".join(output)
-        )
+        output_rows.append(output_row)
 
-    return converted, palette
+    return palette, output_rows
 
 
-# ============================================================
+# ============================================================================
 # Property translation
-# ============================================================
+# ============================================================================
 
-def translate_property(
-    key,
-    value,
-    *,
-    filename,
-    line_no,
-    section,
-    raw,
-):
-    key_text = decode_ascii(
-        key,
-        filename=filename,
-        line_no=line_no,
-        section=section,
-        key="property-name",
-    )
+def translate_property(key, value):
+    """
+    Translate ordinary TYPWiz properties to mkgmap syntax.
 
+    Bitmap-specific Color= and Line= handling is performed separately.
+    """
+    key_text = decode_text(key).strip()
+    value_text = decode_text(value).strip()
+
+    # These are handled by the bitmap converter.
+    if key_text in {"Color", "Line"}:
+        return None
+
+    # Keep String= values as text.
     if key_text == "String":
+        language, text = parse_string(value_text)
 
-        number, text = parse_string(
-            value,
-            filename=filename,
-            line_no=line_no,
-            section=section,
-            key=key_text,
-            raw=raw,
-        )
+        if language is None:
+            return f"String={text}"
 
-        return f"String={number},{text}"
+        return f"String={language},{text}"
 
-    if key_text in {
-        "TextColor",
-        "BorderColor",
-        "BackgroundColor",
-    }:
-
-        value_text = rgb(
-            value,
-            filename=filename,
-            line_no=line_no,
-            section=section,
-            key=key_text,
-            raw=raw,
-        )
-
-        return f"{key_text}={value_text}"
-
-    if key_text in {
-        "Type",
-        "TextSize",
-        "FontSize",
-    }:
-
-        value_text = decode_ascii(
-            value.strip(),
-            filename=filename,
-            line_no=line_no,
-            section=section,
-            key=key_text,
-        )
-
-        return f"{key_text}={value_text}"
-
-    # Everything else is ordinary Latin-1 text.
-    value_text = decode_text(
-        value,
-        filename=filename,
-        line_no=line_no,
-        section=section,
-        key=key_text,
-        raw=raw,
-    )
-
+    # Numeric properties which mkgmap accepts directly.
     return f"{key_text}={value_text}"
 
 
-# ============================================================
-# Element parser
-# ============================================================
+# ============================================================================
+# Element parsing
+# ============================================================================
 
 def parse_element(
     lines,
     start_index,
+    section,
     *,
     filename,
-    section,
+    element_index,
 ):
-    element = {
-        "section": section,
-        "properties": [],
-        "colors": [],
-        "bitmap": [],
-        "start_line": (
-            lines[start_index - 1][0]
-            if start_index > 0
-            else 1
-        ),
-    }
+    """
+    Parse one [POI], [POLYLINE], [POLYGON], etc. element.
+
+    Returns:
+        (element_dict, next_index)
+    """
+    properties = []
+    colours = []
+    bitmap_rows = []
 
     i = start_index
 
     while i < len(lines):
+        raw_line = strip_binary_newline(lines[i])
 
-        line_no, raw = lines[i]
+        if is_section_line(raw_line):
+            name = section_name(raw_line)
 
-        # Blank
-        if not raw:
+            if name == "END":
+                i += 1
+                break
+
+        if not raw_line.strip():
             i += 1
             continue
 
-        # Comment
-        if is_comment(raw):
-            info(
-                f"Skipping comment at "
-                f"{filename}:{line_no}: {raw!r}"
-            )
-
+        if is_comment(raw_line):
             i += 1
             continue
 
-        # End
-        if raw == b"[END]":
-            return element, i + 1
-
-        # Property
-        key, value = split_key_value_binary(raw)
-
-        if key is None:
-            fail(
-                (
-                    "Expected key=value, comment, blank line, "
-                    "or [END]"
-                ),
-                filename=filename,
-                line_no=line_no,
-                section=section,
-                raw=raw,
-            )
-
-        # ----------------------------------------------------
-        # Color
-        # ----------------------------------------------------
+        key, value = split_key_value_binary(raw_line)
 
         if key == b"Color":
-
+            # Empty Color= lines exist in the source and should not create
+            # bogus palette entries.
             if not value:
-                warn(
-                    f"{filename}:{line_no}: "
-                    f"section={section}: "
-                    "empty Color= ignored"
-                )
-
+                if DEBUG:
+                    info(
+                        f"  Ignoring empty Color= in element {element_index}"
+                    )
                 i += 1
                 continue
 
-            color_key = value[0]
-            color_value = value[1:]
+            if b"," not in value:
+                fail(
+                    "Color= entry has no comma separator",
+                    filename=filename,
+                    section=section,
+                    key="Color",
+                    raw=value,
+                )
 
-            if color_value.startswith(b","):
-                color_value = color_value[1:]
+            color_key, color_value = value.split(b",", 1)
 
-            color_rgb = rgb(
-                color_value,
-                filename=filename,
-                line_no=line_no,
-                section=section,
-                key="Color",
-                raw=raw,
-            )
+            color_key = color_key.strip()
+            color_value = color_value.strip()
 
-            element["colors"].append(
-                {
-                    "key": color_key,
-                    "rgb": color_rgb,
-                    "line_no": line_no,
-                    "raw": raw,
-                }
-            )
+            if len(color_key) != 1:
+                fail(
+                    (
+                        "Color= key is not exactly one raw byte: "
+                        f"length={len(color_key)}"
+                    ),
+                    filename=filename,
+                    section=section,
+                    key="Color",
+                    raw=value,
+                )
 
-            info(
-                f"  Color line {line_no}: "
-                f"key=0x{color_key:02x}, "
-                f"rgb={color_rgb}"
-            )
+            try:
+                color_rgb = rgb(decode_text(color_value))
+            except Exception as exc:
+                fail(
+                    f"Invalid Color RGB value: {exc}",
+                    filename=filename,
+                    section=section,
+                    key="Color",
+                    raw=value,
+                )
 
-            i += 1
-            continue
+            colours.append((color_key[0], color_rgb))
 
-        # ----------------------------------------------------
-        # Line
-        # ----------------------------------------------------
+        elif key == b"Line":
+            # Keep bitmap rows completely raw.
+            bitmap_rows.append(value)
 
-        if key == b"Line":
+        else:
+            translated = translate_property(key, value)
 
-            element["bitmap"].append(
-                {
-                    "data": value,
-                    "line_no": line_no,
-                    "raw": raw,
-                }
-            )
-
-            info(
-                f"  Bitmap line {line_no}: "
-                f"{len(value)} raw pixels"
-            )
-
-            i += 1
-            continue
-
-        # ----------------------------------------------------
-        # Normal property
-        # ----------------------------------------------------
-
-        translated = translate_property(
-            key,
-            value,
-            filename=filename,
-            line_no=line_no,
-            section=section,
-            raw=raw,
-        )
-
-        element["properties"].append(
-            {
-                "text": translated,
-                "line_no": line_no,
-                "raw": raw,
-            }
-        )
+            if translated is not None:
+                properties.append(translated)
 
         i += 1
 
-    fail(
-        "Reached end of file without finding [END]",
-        filename=filename,
-        section=section,
-    )
+    element = {
+        "section": section,
+        "properties": properties,
+        "colours": colours,
+        "bitmap_rows": bitmap_rows,
+    }
+
+    return element, i
 
 
-# ============================================================
-# Project parser
-# ============================================================
+# ============================================================================
+# Project parsing
+# ============================================================================
 
-def parse_project(filename):
+def parse_project(data, *, filename):
+    """
+    Parse the entire .prj file from raw bytes.
 
-    path = Path(filename)
+    Returns:
+        project properties
+        elements
+    """
+    lines = data.splitlines(keepends=True)
 
-    if not path.exists():
-        fail(
-            "input file does not exist",
-            filename=filename,
-        )
+    info(f"Input contains {len(lines)} binary lines")
 
-    info(
-        f"Reading binary input: {path}"
-    )
-
-    try:
-        data = path.read_bytes()
-
-    except Exception as e:
-        fail(
-            (
-                "failed to read input: "
-                f"{type(e).__name__}: {e}"
-            ),
-            filename=filename,
-        )
-
-    info(
-        f"Read {len(data)} bytes"
-    )
-
-    raw_lines = data.splitlines()
-
-    info(
-        f"Input contains {len(raw_lines)} binary lines"
-    )
-
-    lines = []
-
-    for line_no, raw in enumerate(
-        raw_lines,
-        1,
-    ):
-        lines.append(
-            (
-                line_no,
-                strip_binary_newline(raw),
-            )
-        )
-
-    project = []
+    project_properties = []
+    elements = []
 
     i = 0
 
     while i < len(lines):
+        raw_line = strip_binary_newline(lines[i])
 
-        line_no, raw = lines[i]
-
-        # Blank
-        if not raw:
+        if not raw_line.strip():
             i += 1
             continue
 
-        # Comment
-        if is_comment(raw):
-            info(
-                f"Skipping top-level comment at "
-                f"line {line_no}: {raw!r}"
-            )
-
+        if is_comment(raw_line):
             i += 1
             continue
 
-        # Project
-        if raw == b"[Project]":
+        if not is_section_line(raw_line):
+            i += 1
+            continue
 
-            info(
-                f"Found [Project] at line {line_no}"
-            )
+        section = section_name(raw_line)
 
+        # ------------------------------------------------------------
+        # Project section
+        # ------------------------------------------------------------
+        if section == "Project":
+            i += 1
+
+            while i < len(lines):
+                raw = strip_binary_newline(lines[i])
+
+                if is_section_line(raw):
+                    name = section_name(raw)
+
+                    if name == "END":
+                        i += 1
+                        break
+
+                if raw.strip() and not is_comment(raw):
+                    key, value = split_key_value_binary(raw)
+
+                    translated = translate_property(key, value)
+
+                    if translated is not None:
+                        project_properties.append(translated)
+
+                i += 1
+
+            continue
+
+        # ------------------------------------------------------------
+        # Elements
+        # ------------------------------------------------------------
+        if section in SECTION_MAP:
             element, next_i = parse_element(
                 lines,
                 i + 1,
+                section,
                 filename=filename,
-                section="Project",
+                element_index=len(elements) + 1,
             )
 
-            project.append(element)
-
+            elements.append(element)
             i = next_i
             continue
 
-        # Section
-        if is_section_line(raw):
+        i += 1
 
-            section = section_name(
-                raw,
-                filename,
-                line_no,
-            )
-
-            if section == "END":
-                fail(
-                    "Unexpected [END] at top level",
-                    filename=filename,
-                    line_no=line_no,
-                    raw=raw,
-                )
-
-            if section not in SECTION_MAP:
-                warn(
-                    f"{filename}:{line_no}: "
-                    f"unknown section [{section}]"
-                )
-
-            info(
-                f"Found [{section}] at line {line_no}"
-            )
-
-            element, next_i = parse_element(
-                lines,
-                i + 1,
-                filename=filename,
-                section=section,
-            )
-
-            project.append(element)
-
-            i = next_i
-            continue
-
-        fail(
-            (
-                "Unexpected top-level line. "
-                "Expected comment, blank line, [Project], "
-                "or an element section."
-            ),
-            filename=filename,
-            line_no=line_no,
-            raw=raw,
-        )
-
-    info(
-        f"Successfully parsed {len(project)} elements"
-    )
-
-    return project
+    return project_properties, elements
 
 
-# ============================================================
+# ============================================================================
 # Output
-# ============================================================
+# ============================================================================
 
-def emit_project(
-    project,
-    input_filename,
-):
+def emit_project(project_properties):
     output = []
 
-    for element_number, element in enumerate(
-        project,
-        1,
-    ):
+    output.append("[_project]")
 
-        section = element["section"]
+    for prop in project_properties:
+        output.append(prop)
 
-        info(
-            f"Emitting element "
-            f"{element_number}/{len(project)} "
-            f"[{section}]"
+    output.append("[_end]")
+
+    return output
+
+
+def emit_element(
+    element,
+    *,
+    filename,
+    element_index,
+):
+    section = element["section"]
+    output_section = SECTION_MAP[section]
+
+    output = []
+
+    output.append(f"[{output_section}]")
+
+    for prop in element["properties"]:
+        output.append(prop)
+
+    colours = element["colours"]
+    bitmap_rows = element["bitmap_rows"]
+
+    if bitmap_rows:
+        palette, converted_rows = convert_bitmap(
+            bitmap_rows,
+            colours,
+            filename=filename,
+            section=section,
+            element_index=element_index,
         )
 
-        # Section
-        if section == "Project":
-            output.append("[Project]")
-        else:
+        # ------------------------------------------------------------
+        # Emit Color= entries.
+        #
+        # The generated key is one character before the bitmap pixel.
+        #
+        # Example:
+        #
+        #     Color=A,0xffffff
+        #
+        # bitmap pixel:
+        #
+        #     B
+        #
+        # Transparency is always bitmap character '0'.
+        # ------------------------------------------------------------
+        for source_key, entry in palette.items():
             output.append(
-                f"[{SECTION_MAP.get(section, section.lower())}]"
+                f"Color={entry['key']},{entry['rgb']}"
             )
 
-        # Normal properties
-        for property_item in element["properties"]:
-            output.append(
-                property_item["text"]
-            )
+        for row in converted_rows:
+            output.append(f"Line={row}")
 
-        # Bitmap
-        if element["bitmap"]:
-
-            color_keys = [
-                entry["key"]
-                for entry in element["colors"]
-            ]
-
-            bitmap_rows = [
-                entry["data"]
-                for entry in element["bitmap"]
-            ]
-
-            info(
-                f"  Converting bitmap: "
-                f"rows={len(bitmap_rows)}, "
-                f"colors={len(color_keys)}"
-            )
-
-            converted_rows, palette = convert_bitmap(
-                bitmap_rows,
-                color_keys,
-                filename=input_filename,
+    else:
+        # Elements without bitmap rows still retain their Color= definitions.
+        #
+        # Since there is no bitmap, these are emitted using the same safe
+        # ASCII colour-key convention.
+        if colours:
+            palette = make_xpm_palette(
+                colours,
+                filename=filename,
                 section=section,
+                element_index=element_index,
             )
 
-            # Color definitions
-            for color_entry in element["colors"]:
-
-                raw_key = color_entry["key"]
-
-                xpm_char = palette[raw_key]
-
+            for source_key, entry in palette.items():
                 output.append(
-                    f"Color={xpm_char},"
-                    f"{color_entry['rgb']}"
+                    f"Color={entry['key']},{entry['rgb']}"
                 )
 
-            # Bitmap rows
-            for bitmap_entry, row in zip(
-                element["bitmap"],
-                converted_rows,
-            ):
+    output.append("[_end]")
 
-                source_line = bitmap_entry["line_no"]
-
-                info(
-                    f"  Output Line from input line "
-                    f"{source_line}: "
-                    f"{len(row)} pixels"
-                )
-
-                output.append(
-                    f"Line={row}"
-                )
-
-        output.append("[END]")
-        output.append("")
-
-    return "\n".join(output)
+    return output
 
 
-# ============================================================
-# Conversion
-# ============================================================
+# ============================================================================
+# Main conversion
+# ============================================================================
 
-def convert(
-    input_file,
-    output_file,
-):
-
+def convert(input_path, output_path):
     info("=" * 70)
     info("TYP conversion started")
-    info(f"Input : {input_file}")
-    info(f"Output: {output_file}")
+    info(f"Input : {input_path}")
+    info(f"Output: {output_path}")
     info("Input : BINARY")
-    info("Text  : LATIN-1")
+    info(f"Text  : {TEXT_ENCODING.upper()}")
     info("XPM   : ASCII")
     info("=" * 70)
 
-    project = parse_project(
-        input_file
+    # ------------------------------------------------------------------------
+    # Read BINARY.
+    #
+    # Do NOT use read_text() and do NOT decode the whole file as UTF-8.
+    # ------------------------------------------------------------------------
+    info(f"Reading binary input: {input_path}")
+
+    path = Path(input_path)
+    data = path.read_bytes()
+
+    info(f"Read {len(data)} bytes")
+
+    # ------------------------------------------------------------------------
+    # Parse.
+    # ------------------------------------------------------------------------
+    project_properties, elements = parse_project(
+        data,
+        filename=str(input_path),
     )
 
-    info(
-        "Parsing complete"
+    info(f"Parsed {len(elements)} graphical elements")
+
+    # ------------------------------------------------------------------------
+    # Emit.
+    # ------------------------------------------------------------------------
+    output_lines = []
+
+    output_lines.extend(
+        emit_project(project_properties)
     )
 
-    info(
-        "Starting output generation"
-    )
+    total = len(elements)
 
-    text = emit_project(
-        project,
-        input_file,
-    )
-
-    output_path = Path(
-        output_file
-    )
-
-    try:
-        output_path.write_text(
-            text,
-            encoding="utf-8",
-            newline="\n",
+    for index, element in enumerate(elements, start=1):
+        info(
+            f"Emitting element {index}/{total} "
+            f"[{element['section']}]"
         )
 
-    except Exception as e:
-        fail(
-            (
-                "failed to write UTF-8 output: "
-                f"{type(e).__name__}: {e}"
-            ),
-            filename=output_file,
+        output_lines.extend(
+            emit_element(
+                element,
+                filename=str(input_path),
+                element_index=index,
+            )
         )
 
-    output_bytes = len(
-        text.encode("utf-8")
-    )
+    output_text = "\n".join(output_lines) + "\n"
 
-    info(
-        f"Output written successfully: "
-        f"{output_bytes} UTF-8 bytes"
+    # ------------------------------------------------------------------------
+    # Write UTF-8 output.
+    # ------------------------------------------------------------------------
+    info(f"Writing UTF-8 output: {output_path}")
+
+    Path(output_path).write_text(
+        output_text,
+        encoding=OUTPUT_ENCODING,
+        newline="\n",
     )
 
     info("=" * 70)
-    info("CONVERSION COMPLETE")
+    info("Conversion completed successfully")
+    info(f"Output size: {len(output_text.encode(OUTPUT_ENCODING))} bytes")
     info("=" * 70)
 
 
-# ============================================================
-# Main
-# ============================================================
+# ============================================================================
+# CLI
+# ============================================================================
 
 def main():
-
     if len(sys.argv) != 3:
-
         print(
-            "Usage:",
+            f"Usage: {sys.argv[0]} INPUT.typ.prj OUTPUT.typ.txt",
             file=sys.stderr,
         )
-
-        print(
-            "  python conv.py "
-            "input.typ.prj output.typ.txt",
-            file=sys.stderr,
-        )
-
         sys.exit(2)
 
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
+    input_path = sys.argv[1]
+    output_path = sys.argv[2]
 
     try:
+        convert(input_path, output_path)
 
-        convert(
-            input_file,
-            output_file,
-        )
-
-    except ConversionError as e:
-
-        print(
-            file=sys.stderr
-        )
-
-        print(
-            str(e),
-            file=sys.stderr
-        )
-
-        print(
-            file=sys.stderr
-        )
-
-        print(
-            "Conversion stopped.",
-            file=sys.stderr,
-        )
-
-        print(
-            "The output file must not be considered valid.",
-            file=sys.stderr,
-        )
-
+    except ConversionError as exc:
+        print(str(exc), file=sys.stderr)
         sys.exit(1)
 
-    except Exception as e:
-
+    except Exception as exc:
         print(
-            file=sys.stderr
-        )
-
-        print(
-            "ERROR | unexpected exception",
+            f"ERROR | unexpected exception: {type(exc).__name__}: {exc}",
             file=sys.stderr,
         )
-
-        print(
-            f"ERROR | type={type(e).__name__}",
-            file=sys.stderr,
-        )
-
-        print(
-            f"ERROR | message={e}",
-            file=sys.stderr,
-        )
-
-        print(
-            file=sys.stderr
-        )
-
-        traceback.print_exc()
-
         sys.exit(1)
 
 
