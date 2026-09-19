@@ -32,7 +32,7 @@ for style in styles/typ/*.typ.txt; do
     java -cp bin/mkgmap-r4924/mkgmap.jar uk.me.parabola.mkgmap.main.TypCompiler "${style}.typ.txt" "${style}.typ" 
 done
 
-rm -f tmp/g
+rm -rf tmp/g
 mkdir -p tmp/g
 
 # 3) mkgmap → gmapsupp.img   (fid=2114; binary .typ compiled from source above, no gmt needed)
