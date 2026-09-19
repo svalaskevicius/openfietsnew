@@ -3955,8 +3955,10 @@ String=3,straat
 String=4,street
 FontStyle=SmallFont
 Linewidth=2
-Xpm="0 0 1 0"
-"a c #393000"
+Borderwidth=1
+Xpm="0 0 2 0"
+"a c #a99000"
+"b c #7b6500"
 [_end]
 [_line]
 Type=0x07
@@ -3964,9 +3966,11 @@ String=2,Zufahrtsstraße
 String=3,toegangsweg
 String=4,service road
 FontStyle=SmallFont
-Xpm="32 3 2 1"
+Xpm="32 3 4 1"
 "! c #414141"
 "# c #ffffff"
+"1 c #aaaaaa"
+"2 c #333333"
 "!!!!!!!###!!!!!!!###!!!!!!!###!!"
 "################################"
 "!!!!!!!###!!!!!!!###!!!!!!!###!!"
@@ -3980,6 +3984,19 @@ FontStyle=SmallFont
 Linewidth=3
 Xpm="0 0 1 0"
 "a c #00956a"
+[_end]
+[_line]
+Type=0x0816
+String=4,shared pedestrian/cycle road
+String=3,gedeelde weg (te voet en fiets)
+FontStyle=NoLabel
+Linewidth=3
+Borderwidth=1
+Xpm="0 0 4 0"
+"a c #cbb593"
+"b c #8a6b3c"
+"3 c #746649"
+"4 c #483d2b"
 [_end]
 [_line]
 Type=0x09
@@ -4007,9 +4024,11 @@ String=2,Pfad
 String=3,pad
 String=4,path
 FontStyle=SmallFont
-Xpm="32 4 2 1"
+Xpm="32 4 4 1"
 "! c #e6e6e6"
 "# c #414141"
+"1 c #323232"
+"2 c #989898"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 "#####!!!#####!!!#####!!!#####!!!"
 "#####!!!#####!!!#####!!!#####!!!"
@@ -4161,6 +4180,19 @@ Xpm="32 1 2 1"
 "!!!!!...!!!!!...!!!!!...!!!!!..."
 [_end]
 [_line]
+Type=0x1502
+String=4,cycle route on track/path
+String=3,fietsroute (pad)
+FontStyle=NoLabel
+Linewidth=3
+Borderwidth=2
+Xpm="0 0 4 0"
+"a c #ff0000"
+"b c #a80000"
+"3 c #9c1414"
+"4 c #5f0c0c"
+[_end]
+[_line]
 Type=0x16
 String=2,Radweg
 String=3,fietspad
@@ -4170,6 +4202,32 @@ Linewidth=2
 Xpm="0 0 2 0"
 "a c #ff0000"
 "1 c #A80000"
+[_end]
+[_line]
+Type=0x1602
+String=4,cycleway (track)
+String=3,fietsweg (track)
+FontStyle=NoLabel
+Linewidth=3
+Borderwidth=2
+Xpm="0 0 4 0"
+"a c #ff0000"
+"b c #a80000"
+"3 c #9c1414"
+"4 c #5f0c0c"
+[_end]
+[_line]
+Type=0x17
+String=4,sidewalk
+String=3,sidewalk
+String=2,sidewalk
+FontStyle=NoLabel
+Xpm="32 1 4 1"
+"! c #cccccc"
+". c none"
+"1 c #444444"
+"2 c none"
+"!!!!!...!!!!!...!!!!!...!!!!!..."
 [_end]
 [_line]
 Type=0x18
@@ -4407,6 +4465,19 @@ Xpm="32 2 2 1"
 ". c none"
 "!!..!!..!!..!!..!!..!!..!!..!!.."
 "!!..!!..!!..!!..!!..!!..!!..!!.."
+[_end]
+[_line]
+Type=0x2915
+String=4,bridleway (no cycling)
+String=3,ruiterpad (fietsen niet toegestaan)
+FontStyle=NoLabel
+Linewidth=2
+Borderwidth=1
+Xpm="0 0 4 0"
+"a c #bd9500"
+"b c #7a5f00"
+"3 c #6b5300"
+"4 c #403100"
 [_end]
 [_line]
 Type=0x2a
@@ -5484,10 +5555,10 @@ FontStyle=NoLabel
 DayCustomColor=#b2ffb2
 NightCustomColor=#26401f
 Xpm="32 32 4 1"
-"! c #7bca6a"
-". c none"
-"3 c #3f4b2c"
-"4 c none"
+"! c #7baa6a"
+". c #70a060"
+"3 c #354a25"
+"4 c #314020"
 "!.!.!.!!!.!.!.!.!.!.!.!.!!!!!!!!"
 ".....!..!......!!.!.!.!!!!..!..!"
 "!.!!!!!.!!!.!!!.!.!.!!!.!!!.!.!!"
@@ -6400,8 +6471,8 @@ String=3,gebied
 String=4,area
 FontStyle=NoLabel
 Xpm="0 0 2 0"
-"a c #bdffd5"
-"# c #147136"
+"a c #babaa0"
+"# c #383634"
 [_end]
 [_polygon]
 Type=0x10200

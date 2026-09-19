@@ -200,6 +200,8 @@ highway=motorway {name '${ref|highway-symbol:box}'} [0x10013 resolution 22]
 highway=* & access=private & bicycle!=yes & mkgmap:unpaved!=1 & area!=yes & highway!=footway & highway!=path & highway!=track [0x07 road_class=0 road_speed=0 resolution 22]
 
 
+highway=pedestrian & bicycleroute!=yes & footway=sidewalk  [0x17 resolution 24]
+
 # render paved roads without motorcar traffic
 highway=unclassified & (car=no|car=destination|car=private) & bicycle!=no & mkgmap:unpaved!=1 {add no_car=yes}
 highway=unclassified & (access=no|access=private) &  bicycle=yes & mkgmap:unpaved!=1 {add no_car=yes}
