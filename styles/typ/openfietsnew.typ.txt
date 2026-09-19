@@ -4174,23 +4174,12 @@ String=4,track or path
 String=3,onverharde weg of pad
 String=2,Unbefestigter Weg, Pfad
 FontStyle=NoLabel
-Xpm="32 1 2 1"
+Xpm="32 1 4 1"
 "! c #573132"
 ". c none"
+"! c #b76162"
+". c none"
 "!!!!!...!!!!!...!!!!!...!!!!!..."
-[_end]
-[_line]
-Type=0x1502
-String=4,cycle route on track/path
-String=3,fietsroute (pad)
-FontStyle=NoLabel
-Linewidth=3
-Borderwidth=2
-Xpm="0 0 4 0"
-"a c #ff0000"
-"b c #a80000"
-"3 c #9c1414"
-"4 c #5f0c0c"
 [_end]
 [_line]
 Type=0x16
@@ -4202,19 +4191,6 @@ Linewidth=2
 Xpm="0 0 2 0"
 "a c #ff0000"
 "1 c #A80000"
-[_end]
-[_line]
-Type=0x1602
-String=4,cycleway (track)
-String=3,fietsweg (track)
-FontStyle=NoLabel
-Linewidth=3
-Borderwidth=2
-Xpm="0 0 4 0"
-"a c #ff0000"
-"b c #a80000"
-"3 c #9c1414"
-"4 c #5f0c0c"
 [_end]
 [_line]
 Type=0x17
@@ -4465,19 +4441,6 @@ Xpm="32 2 2 1"
 ". c none"
 "!!..!!..!!..!!..!!..!!..!!..!!.."
 "!!..!!..!!..!!..!!..!!..!!..!!.."
-[_end]
-[_line]
-Type=0x2915
-String=4,bridleway (no cycling)
-String=3,ruiterpad (fietsen niet toegestaan)
-FontStyle=NoLabel
-Linewidth=2
-Borderwidth=1
-Xpm="0 0 4 0"
-"a c #bd9500"
-"b c #7a5f00"
-"3 c #6b5300"
-"4 c #403100"
 [_end]
 [_line]
 Type=0x2a
