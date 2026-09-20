@@ -2,21 +2,21 @@
 countries =
 # countries += albania
 # countries += andorra
-countries += austria
+# countries += austria
 # countries += belgium
 # countries += bosnia-herzegovina
 # countries += bulgaria
 # countries += croatia
 # countries += czech-republic
 # countries += denmark
-countries += france
-countries += germany
-# countries += great-britain
+# countries += france
+# countries += germany
+countries += great-britain
 # countries += greece
 # countries += hungary
-countries += ireland-and-northern-ireland
-countries += italy
-countries += liechtenstein
+# countries += ireland-and-northern-ireland
+# countries += italy
+# countries += liechtenstein
 # countries += luxembourg
 # countries += macedonia
 # countries += monaco
@@ -27,9 +27,9 @@ countries += liechtenstein
 # countries += romania
 # countries += serbia
 # countries += slovakia
-countries += slovenia
+# countries += slovenia
 # countries += spain
-countries += switzerland
+# countries += switzerland
 
 %.poly:
 	wget -N -O $@.tmp http://download.geofabrik.de/europe/$@

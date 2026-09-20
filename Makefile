@@ -1,185 +1,91 @@
+# Build the openfietsnew map for a single area, same pipeline as test.sh but with
+# make's incremental rebuilds: each expensive step has an output to track, so re-running
+# `make` only reruns osmosis/splitter/mkgmap when their inputs actually changed.
 
-# From Geofabrik.
-europe = /data/osm/europe-latest.osm.pbf
+# --- Vendored binaries (matches test.sh; no PATH / system-binary assumptions) ---
+OSMOSIS  = bin/osmosis-0.49.2/bin/osmosis
+SPLITTER_JAR = bin/splitter-r654/splitter.jar
+MKGMAP_JAR = bin/mkgmap-r4924/mkgmap.jar
 
-# From: http://develop.freizeitkarte-osm.de/ele_20_100_500/.
-srtm = /data/osm/Hoehendaten_Freizeitkarte_EUROPE.osm.pbf
+# --- Input data (matches test.sh) ---
+OSM	  = data/united-kingdom-260914.osm.pbf		  # OSM roads
+ELEV	 = data/Hoehendaten_Freizeitkarte_GBR+.osm.pbf # contour / elevation
+CITIES   = data/cities15000.zip						# place-name labels (blank if missing)
+SEA	  = data/sea-latest.zip						 # coastlines (blank if missing)
+BOUNDS   = data/bounds-latest.zip					   # addresses / admin boundaries / POIs
 
-# Links for the up-to-date versions of these are here: http://www.openfietsmap.nl/procedure.
-sea = /data/osm/sea.zip
-bounds = /data/osm/bounds.zip
-cities = /data/osm/cities15000.zip
+# --- Area / style identity ---
+AREA	 = great-britain
+# AREA	 = london-bridge-kidbrooke
+POLYGON  = polygons/$(AREA).poly
+STYLE	= openfietsnew
 
-tmp = tmp
-data = data
-maps = maps
+ifeq ($(strip $(shell test -s polygons/$(AREA).poly.fid && echo yes)),yes)
+fid = $(shell cat polygons/$(AREA).poly.fid)
+else
+$(error Missing .poly.fid for "$(AREA)": create it with a unique two-digit code, e.g. "echo 14 > polygons/$(AREA).poly.fid")
+endif
+MAPID	= 21$(fid)0001								  # --mapid  (e.g. 21140001)
+FAMILY   = 21$(fid)									  # --family-id (e.g. 2114)
 
-style=openfietsnew
-id = $(shell cat polygons/$(area).poly.fid )
-fid = 21$(id)
-crfid = 22$(id)
+tmp := tmp
 
-build: area                      # This is just to check that the "area" variable is defined."
-build: polygons/$(area).poly     # Fetch this from elsewhere.
-build: polygons/$(area).poly.fid # Set this to a (unique) two-digit number
-build: data/europe.pbf
-build: data/$(area)/pbf
-build: data/$(area)/img
-build: data/$(area)/cycle-route
-build: $(maps)/$(area).img
-build: $(maps)/cycle-route/$(area)-routes.img
+# --- Intermediate / final outputs tracked by make for incremental rebuilds ---
+UK_ELE  := $(tmp)/uk-ele.pbf
+MAPIMG  := maps/$(AREA)/gmapsupp.img
 
-.PHONY: area
-area:
-	test -n "$(area)" # "area" must be defined.
+# Compiled TYP styles from source: every *.typ.txt under styles/typ is compiled automatically,
+# so a new .prj can never go stale and there's nothing to keep in sync with mkgmap.
+TYP_STYLES := $(patsubst styles/typ/%.typ.txt,styles/typ/%.typ,$(wildcard styles/typ/*.typ.txt))
 
-# Merge the available OSM and contour sources.
-data/europe.pbf: $(europe) $(srtm)
-	rm -fr $(tmp)
-	mkdir -p $(tmp) $(data)
-	rm -f $@
-	osmosis --read-pbf file=$(europe) --read-pbf file=$(srtm) --merge --write-pbf file=$(tmp)/europe.pbf omitmetadata=true
-	mv -v $(tmp)/europe.pbf $@
+.PHONY: all build 
+.DEFAULT_GOAL := all
 
-# Split the data into tiles for $(area).
-data/$(area)/pbf: polygons/$(area).poly
-data/$(area)/pbf: data/europe.pbf
-	rm -fr $(tmp) $@
-	mkdir -p $(tmp) $(data)/$(area)
-	nice splitter \
-	   --max-nodes=1200000                    \
-	   --max-areas=1536                       \
-           --mapid=$(fid)0001                     \
-	   --geonames-file=$(cities)              \
-           --description="OSM $(area) $(style)"   \
-	   --polygon-file=polygons/$(area).poly   \
-	   --precomp-sea=$(sea)                   \
-           --output=pbf                           \
-           --output-dir=$(tmp)                    \
-              data/europe.pbf
-	mv -v $(tmp) $@
+all: build
+build: $(MAPIMG)
 
-styles/$(style)/template.args:
-	touch styles/$(style)/template.args
+# --- TYP: text source -> binary .typ (no gmt needed) ---
+styles/typ/%.typ: styles/typ/%.typ.txt
+	java -cp $(MKGMAP_JAR) uk.me.parabola.mkgmap.main.TypCompiler $< $@
 
-# Compile the map tiles.
-data/$(area)/img: styles/typ/$(style).typ
-data/$(area)/img: $(shell find styles/$(style) -type f)
-data/$(area)/img: data/$(area)/pbf
-	rm -fr $(tmp) $@
-	mkdir -p $(tmp) $(data)/$(area)
-	cp styles/typ/$(style).typ $(tmp)/$(style).typ
-	gmt -w -y $(fid) $(tmp)/$(style).typ
-	nice mkgmap                                     \
-	   --output-dir=$(tmp)                          \
-	   --read-config=styles/$(style)/template.args   \
-	   --precomp-sea=$(sea)                         \
-	   --bounds=$(bounds)                           \
-           --family-id=$(fid)                           \
-           --mapname=$(fid)0001                         \
-           --description="OSM $(area) ($(style))"       \
-	   --area-name="$(area)"                        \
-	   --family-name="$(area)"                      \
-	   --series-name="$(area)"                      \
-           --country-name="$(area)"                     \
-           --region-name="$(area)"                      \
-	   --gmapsupp                                   \
-	   --remove-ovm-work-files                      \
-	   --max-jobs=4                                 \
-	   --tdbfile                                    \
-	   --style-file=styles/$(style)                 \
-	   $(data)/$(area)/pbf/*.pbf                    \
-	   $(tmp)/$(style).typ
-	mv -v $(tmp) $@
+# --- (1) Merge OSM + elevation into a single PBF ---
+# Incremental on the two input files; rerun only when they change.
+$(UK_ELE): $(OSM) $(ELEV)
+	mkdir -p tmp
+	$(OSMOSIS) --read-pbf file=$(OSM) \
+		--read-pbf file=$(ELEV) --merge \
+		--write-pbf $@ omitmetadata=true
 
-# Compile the cycle-route tiles.
-data/$(area)/cycle-route: styles/typ/cycle-route.typ
-data/$(area)/cycle-route: $(shell find styles/cycle-route -type f)
-data/$(area)/cycle-route: data/$(area)/pbf
-	rm -fr $(tmp) $@
-	mkdir -p $(tmp) $(data)/$(area)
-	cp styles/typ/cycle-route.typ $(tmp)/
-	gmt -w -y $(crfid) $(tmp)/cycle-route.typ
-	nice mkgmap                                       \
-	   --output-dir=$(tmp)                            \
-	   --read-config=styles/cycle-route/template.args \
-	   --precomp-sea=$(sea)                           \
-	   --bounds=$(bounds)                             \
-           --family-id=$(crfid)                           \
-           --mapname=$(crfid)0001                         \
-           --description="OSM $(area) (cycle routes)"     \
-	   --area-name="$(area) routes"                   \
-	   --family-name="$(area) routes"                 \
-	   --series-name="$(area) routes"                 \
-           --country-name="$(area) routes"                \
-           --region-name="$(area) routes"                 \
-	   --gmapsupp                                     \
-	   --max-jobs=4                                   \
-	   --tdbfile                                      \
-	   --style-file=styles/cycle-route                \
-	   $(data)/$(area)/pbf/*.pbf                      \
-	   $(tmp)/cycle-route.typ
-	mv -v $(tmp) $@
+# --- (2) Split into tiles bounded by the polygon ---
+# Parallelises mkgmap and saves RAM. Guarded by a stamp so splitter only reruns when its
+# inputs change; test.sh always re-ran it, this does not.
+tmp/$(AREA)/split/__split.done: $(UK_ELE) $(POLYGON) $(CITIES) $(SEA)
+	mkdir -p $(tmp)/$(AREA)/split
+	java -Xmx48G -jar $(SPLITTER_JAR) \
+		 --max-nodes=1200000 --mapid=$(MAPID) \
+		 --polygon-file=$(POLYGON) \
+		 --geonames-file=$(CITIES) \
+		 --precomp-sea=$(SEA) \
+		 --description="GB openfietsnewer" \
+		 --output-dir=tmp/$(AREA)/split/ $(UK_ELE)
+	@touch $@
 
-$(maps)/$(area).img: $(data)/$(area)/img
-$(maps)/$(area).img: $(data)/$(area)/cycle-route
-	rm -fr $(tmp) $@
-	# mkdir -vp $(tmp) $(data)/$(area) $(maps)
-	# nice mkgmap                                 \
-	#    --gmapsupp                               \
-	#    --output-dir=$(tmp)                      \
-	#    --description="$(area)/$(style)"         \
-	#      $(data)/$(area)/img/gmapsupp.img       \
-	#      $(data)/$(area)/cycle-route/gmapsupp.img
-	# ln -v $(tmp)/gmapsupp.img $@
-	ln -v $(data)/$(area)/img/gmapsupp.img $@
+# --- (3) mkgmap -> gmapsupp.img ---
+# Incremental on the split tiles and every style source file, so editing a .prj rebuilds just this.
+$(MAPIMG): tmp/$(AREA)/split/__split.done $(TYP_STYLES) \
+		   $(shell find styles/$(STYLE) -type f 2>/dev/null) styles/$(STYLE)/template.args
+	mkdir -p $(tmp)/$(AREA)/out
+	java -Xmx52G -jar $(MKGMAP_JAR) \
+		 --read-config=styles/$(STYLE)/template.args \
+		 --family-id=$(FAMILY) --mapname=$(MAPID) \
+		 --drive-on=left \
+		 --output-dir=$(tmp)/$(AREA)/out --gmapsupp --tdbfile --max-jobs=10 \
+		 --bounds=$(BOUNDS) \
+		 --precomp-sea=$(SEA) \
+		 --remove-ovm-work-files \
+		 --style-file=styles/$(STYLE) \
+		 tmp/$(AREA)/split/*.pbf styles/typ/openfietsnew.typ
+	mkdir -p maps/$(AREA)
+	mv $(tmp)/$(AREA)/out/gmapsupp.img "$@"
 
-$(maps)/cycle-route/$(area)-routes.img: data/$(area)/cycle-route
-	rm -f $@
-	mkdir -p $(maps)/cycle-route
-	ln -v data/$(area)/cycle-route/gmapsupp.img $@
 
-countries  =
-countries += austria
-countries += france
-countries += germany
-countries += italy
-countries += liechtenstein
-countries += great-britain
-countries += ireland-and-northern-ireland
-countries += slovenia
-countries += switzerland
-countries += alps-east
-countries += alps-west
-
-$(countries):
-	$(MAKE) area=$@ build
-
-install:
-	sudo rsync -v --progress --modify-window=1 --update --times --no-o --no-g $(maps)/*.img ~/garmin/Garmin/
-
-install-routes:
-	sudo rsync -v --progress --modify-window=1 --update --times --no-o --no-g $(maps)/cycle-route/*.img ~/garmin/Garmin/
-
-all:
-	$(MAKE) ireland
-	$(MAKE) alps
-	$(MAKE) france-strip
-
-test ireland:
-	$(MAKE) area=ireland-and-northern-ireland build
-
-alps:
-	$(MAKE) area=alps-east build
-	$(MAKE) area=alps-west build
-
-france-strip:
-	$(MAKE) area=france-strip build
-
-martigny:
-	$(MAKE) area=martigny build
-
-watch:
-	watch -n 1 ls -lht $(tmp)
-
-.PHONY: all $(countries) test ireland alps martigny
