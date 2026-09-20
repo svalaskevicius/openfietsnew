@@ -3884,8 +3884,8 @@ String=4,cycling route
 FontStyle=NoLabel
 Linewidth=3
 Xpm="0 0 2 0"
-"a c #4b655b"
-"1 c #abc5bb"
+"a c #2b553b"
+"1 c #bbe5cb"
 [_end]
 [_line]
 Type=0x01
@@ -3921,8 +3921,8 @@ String=2,Hauptverbindungsstraße
 String=3,N-weg
 String=4,principal highway
 FontStyle=SmallFont
-Linewidth=1
-Borderwidth=3
+Linewidth=3
+Borderwidth=2
 Xpm="0 0 4 0"
 "a c #b4b4b4"
 "b c #525252"
@@ -3935,11 +3935,13 @@ String=2,Landesstraße
 String=3,Provinciale weg
 String=4,secondary highway
 FontStyle=SmallFont
-Linewidth=1
-Borderwidth=3
-Xpm="0 0 2 0"
+Linewidth=3
+Borderwidth=2
+Xpm="0 0 4 0"
 "a c #ffca00"
 "b c #7b6500"
+"1 c #7b6500"
+"2 c #ffca00"
 [_end]
 [_line]
 Type=0x05
@@ -3949,9 +3951,11 @@ String=4,tertiary road
 FontStyle=SmallFont
 Linewidth=2
 Borderwidth=2
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "a c #ffca00"
 "b c #7b6500"
+"1 c #7b6500"
+"2 c #ffca00"
 [_end]
 [_line]
 Type=0x06
@@ -3961,9 +3965,11 @@ String=4,street
 FontStyle=SmallFont
 Linewidth=2
 Borderwidth=1
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "a c #a99000"
 "b c #7b6500"
+"1 c #8b7510"
+"2 c #a99000"
 [_end]
 [_line]
 Type=0x07
@@ -4009,9 +4015,11 @@ String=2,Tunnel
 String=3,tunnel
 String=4,tunnel
 FontStyle=SmallFont
-Xpm="32 10 2 1"
+Xpm="32 10 4 1"
 "! c #393000"
 ". c none"
+"1 c #798050"
+"2 c none"
 "................................"
 "................................"
 ".!!!!!...!!!!!...!!!!!...!!!!!.."
@@ -4033,7 +4041,7 @@ Xpm="32 4 4 1"
 "! c #e6e6e6"
 "# c #414141"
 "1 c #323232"
-"2 c #989898"
+"2 c #d0d0d0"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 "#####!!!#####!!!#####!!!#####!!!"
 "#####!!!#####!!!#####!!!#####!!!"
@@ -4130,7 +4138,7 @@ FontStyle=NoLabel
 Linewidth=2
 Xpm="0 0 2 0"
 "a c #ff0000"
-"1 c #A80000"
+"1 c #ff5020"
 [_end]
 [_line]
 Type=0x12
@@ -4140,9 +4148,11 @@ String=4,secondary road
 FontStyle=NoLabel
 Linewidth=1
 Borderwidth=2
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "a c #ffca00"
 "b c #7b6500"
+"1 c #7b6500"
+"2 c #ffca00"
 [_end]
 [_line]
 Type=0x13
@@ -4165,10 +4175,10 @@ String=3,spoorweg
 String=4,railway
 FontStyle=NoLabel
 Xpm="32 3 4 1"
-"! c #000000"
-"# c #ffffff"
-"1 c #000000"
-"2 c #666666"
+"! c #222222"
+"# c #cccccc"
+"1 c #222222"
+"2 c #aaaaaa"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 "####!!!!!!!!#########!!!!!!!!###"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -4195,7 +4205,7 @@ FontStyle=SmallFont
 Linewidth=2
 Xpm="0 0 2 0"
 "a c #ff0000"
-"1 c #A80000"
+"1 c #ff5020"
 [_end]
 [_line]
 Type=0x17
@@ -4229,8 +4239,9 @@ FontStyle=NoLabel
 DayCustomColor=#b2b2f2
 NightCustomColor=#d9d9f9
 Linewidth=3
-Xpm="0 0 1 0"
+Xpm="0 0 2 0"
 "a c #0030ff"
+"1 c #2070ff"
 [_end]
 [_line]
 Type=0x1a
@@ -4329,7 +4340,7 @@ String=4,river
 String=3,rivier
 String=2,Fluß
 FontStyle=SmallFont
-DayCustomColor=#b2b2f2
+DayCustomColor=#222252
 NightCustomColor=#d9d9f9
 Linewidth=3
 Xpm="0 0 1 0"
@@ -4338,7 +4349,7 @@ Xpm="0 0 1 0"
 [_line]
 Type=0x20
 FontStyle=NoLabel
-DayCustomColor=#e0d1c2
+DayCustomColor=#403122
 NightCustomColor=#f0e8e0
 Linewidth=1
 Xpm="0 0 1 0"
@@ -4347,7 +4358,7 @@ Xpm="0 0 1 0"
 [_line]
 Type=0x21
 FontStyle=SmallFont
-DayCustomColor=#e0d1c2
+DayCustomColor=#403122
 NightCustomColor=#f0e8e0
 Linewidth=1
 Xpm="0 0 1 0"
@@ -4356,7 +4367,7 @@ Xpm="0 0 1 0"
 [_line]
 Type=0x22
 FontStyle=SmallFont
-DayCustomColor=#e0d1c2
+DayCustomColor=#403122
 NightCustomColor=#f0e8e0
 Linewidth=1
 Xpm="0 0 1 0"
@@ -4375,7 +4386,7 @@ Xpm="0 0 1 0"
 Type=0x24
 String=4,ncn
 FontStyle=NoLabel
-DayCustomColor=#b2ffb2
+DayCustomColor=#324f32
 NightCustomColor=#d9ffd9
 Linewidth=4
 Xpm="0 0 1 0"
@@ -4418,7 +4429,7 @@ String=2,Lokale Radroute
 String=3,lokale fietsroute
 String=4,local bike route
 FontStyle=NoLabel
-DayCustomColor=#ffc1dc
+DayCustomColor=#4f212c
 NightCustomColor=#ffe0ee
 Linewidth=3
 Xpm="0 0 2 0"
@@ -4504,9 +4515,11 @@ String=4,tertiary road
 FontStyle=NoLabel
 Linewidth=2
 Borderwidth=1
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "a c #ffca20"
 "b c #7b6500"
+"1 c #7b6500"
+"2 c #ffca20"
 [_end]
 [_line]
 Type=0x10002
@@ -4531,9 +4544,11 @@ String=2,Landesstraße (Radverbot)
 String=3,Provinciale weg (fietsverbod)
 String=4,secondary highway (no cycling)
 FontStyle=SmallFont
-Xpm="32 7 2 1"
+Xpm="32 7 4 1"
 "! c #7b6500"
 "# c #ffca00"
+"1 c #ffca00"
+"2 c #7b6500"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 "################################"
 "################################"
@@ -4548,9 +4563,11 @@ String=2,Kreisstraße (Radverbot)
 String=3,Regionale weg (fietsverbod)
 String=4,tertiary road (no cycling)
 FontStyle=SmallFont
-Xpm="32 5 2 1"
+Xpm="32 5 4 1"
 "! c #7b6500"
 "# c #ffca00"
+"1 c #ffca00"
+"2 c #7b6500"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 "################################"
 "#!!!!!!##########!!!!!!#########"
@@ -4566,7 +4583,7 @@ FontStyle=NoLabel
 Xpm="32 10 4 1"
 "! c #ff0000"
 ". c none"
-"1 c #A80000"
+"1 c #ff5020"
 "2 c none"
 "................................"
 "................................"
@@ -4588,7 +4605,7 @@ FontStyle=NoLabel
 Xpm="32 10 4 1"
 "! c #ff0000"
 ". c none"
-"1 c #A80000"
+"1 c #ff5020"
 "2 c none"
 "!!..!!..!!..!!..!!..!!..!!..!!.."
 "!!..!!..!!..!!..!!..!!..!!..!!.."
@@ -4630,7 +4647,7 @@ FontStyle=NoLabel
 Xpm="32 14 4 1"
 "! c #ff0000"
 ". c none"
-"! c #A80000"
+"! c #ff5020"
 ". c none"
 "................................"
 "................................"
@@ -4656,7 +4673,7 @@ FontStyle=NoLabel
 Xpm="32 10 4 1"
 "! c #ff0000"
 ". c none"
-"1 c #A80000"
+"1 c #ff5020"
 "2 c none"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -4698,7 +4715,7 @@ FontStyle=NoLabel
 Xpm="32 14 4 1"
 "! c #ff0000"
 ". c none"
-"1 c #A80000"
+"1 c #ff5020"
 "2 c none"
 ".!....!........................."
 "!!!!!!!!........................"
@@ -5090,8 +5107,9 @@ String=0,nwn
 FontStyle=SmallFont
 DayCustomColor=#b2b2f2
 NightCustomColor=#d9d9f9
-Xpm="32 3 1 1"
+Xpm="32 3 2 1"
 "! c #0000d5"
+"! c #2040f5"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
@@ -5162,8 +5180,8 @@ String=4,urban area
 String=3,stedelijk gebied
 String=2,Bebauung
 FontStyle=NormalFont
-DayCustomColor=#d7c1b2
-NightCustomColor=#ebe0d9
+DayCustomColor=#2b3029
+NightCustomColor=#ebe0b9
 Xpm="32 32 4 1"
 "! c #000000"
 ". c none"
@@ -5209,8 +5227,8 @@ String=3,bebouwde kom
 String=4,residential area
 FontStyle=NoLabel
 Xpm="0 0 2 0"
-"a c #e6e6e6"
-"b c #4a4a54"
+"a c #f5f5f5"
+"b c #303030"
 [_end]
 [_polygon]
 Type=0x03
@@ -5219,8 +5237,8 @@ String=3,bebouwde kom
 String=4,residential area
 FontStyle=NoLabel
 Xpm="0 0 2 0"
-"a c #d5d5d5"
-"b c #3f3f49"
+"a c #f0f0f0"
+"b c #202020"
 [_end]
 [_polygon]
 Type=0x04
@@ -5282,7 +5300,7 @@ String=4,church
 String=3,kerk
 String=2,Kirche
 FontStyle=SmallFont
-DayCustomColor=#c4b2b2
+DayCustomColor=#442222
 NightCustomColor=#5c4329
 Xpm="0 0 2 0"
 "a c #bd956a"
@@ -5314,7 +5332,7 @@ String=4,marina
 String=3,jachthaven
 String=2,Yachthafen, Marina
 FontStyle=SmallFont
-DayCustomColor=#b2b2e8
+DayCustomColor=#323248
 NightCustomColor=#d9d9f4
 Xpm="32 32 4 1"
 "! c #c5c5c5"
@@ -5360,8 +5378,8 @@ String=4,education
 String=3,onderwijs
 String=2,Bildung
 FontStyle=NoLabel
-DayCustomColor=#ebb2b2
-NightCustomColor=#4a2626
+DayCustomColor=#3b2222
+NightCustomColor=#eaa6a6
 Xpm="0 0 2 0"
 "a c #ebb2b2"
 "b c #4a2626"
@@ -5372,7 +5390,7 @@ String=4,hospital
 String=3,hospitaal
 String=2,Krankenhaus
 FontStyle=NoLabel
-DayCustomColor=#ffb2b2
+DayCustomColor=#4f2222
 NightCustomColor=#712f14
 Xpm="0 0 2 0"
 "a c #ff956a"
@@ -5385,8 +5403,8 @@ String=3,bedrijventerrein
 String=4,commercial/industrial area
 FontStyle=NoLabel
 Xpm="0 0 2 0"
-"a c #b4b4b4"
-"b c #47484e"
+"a c #e4e4e4"
+"b c #232323"
 [_end]
 [_polygon]
 Type=0x0d
@@ -5449,8 +5467,8 @@ String=3,gebouw
 String=4,building
 FontStyle=NoLabel
 Xpm="0 0 2 0"
-"a c #a4a4a4"
-"b c #575660"
+"a c #c4c4c4"
+"b c #474747"
 [_end]
 [_polygon]
 Type=0x14
@@ -5458,7 +5476,7 @@ String=4,Forest
 String=3,Bos
 String=2,Wald
 FontStyle=SmallFont
-DayCustomColor=#d7dfd2
+DayCustomColor=#373f32
 NightCustomColor=#ebefe9
 Xpm="32 32 4 1"
 "! c #7bca6a"
@@ -5504,7 +5522,7 @@ String=4,forest
 String=3,bos
 String=2,Wald
 FontStyle=NoLabel
-DayCustomColor=#d7dfd2
+DayCustomColor=#373f32
 NightCustomColor=#ebefe9
 Xpm="0 0 2 0"
 "a c #7bca6a"
@@ -5516,7 +5534,7 @@ String=4,forest, park
 String=3,bos, park
 String=2,Wald, Park
 FontStyle=SmallFont
-DayCustomColor=#d7dfd2
+DayCustomColor=#373f32
 NightCustomColor=#ebefe9
 Xpm="0 0 2 0"
 "a c #bdefb4"
@@ -5528,8 +5546,8 @@ String=2,Park
 String=3,park
 String=4,park
 FontStyle=NoLabel
-DayCustomColor=#b2ffb2
-NightCustomColor=#26401f
+DayCustomColor=#324f32
+NightCustomColor=#b6f0bf
 Xpm="32 32 4 1"
 "! c #7baa6a"
 ". c #70a060"
@@ -5574,7 +5592,7 @@ String=4,golf course
 String=3,golfbaan
 String=2,Golfplatz
 FontStyle=NoLabel
-DayCustomColor=#ebffd2
+DayCustomColor=#1b4f22
 NightCustomColor=#f5ffe9
 Xpm="32 32 4 1"
 "! c #9de030"
@@ -5620,8 +5638,8 @@ String=2,Sport
 String=3,sport/recreatie
 String=4,sport/recreation
 FontStyle=NoLabel
-DayCustomColor=#b2d1b2
-NightCustomColor=#2f4521
+DayCustomColor=#2f4521
+NightCustomColor=#b2d1b2
 Xpm="32 32 4 1"
 "! c #99df58"
 "# c #30ca30"
@@ -5710,8 +5728,8 @@ String=4,National park
 String=3,Nationaal park
 String=2,Nationalpark
 FontStyle=SmallFont
-DayCustomColor=#b2c1b2
-NightCustomColor=#2f4521
+DayCustomColor=#2f4521
+NightCustomColor=#b2c1b2
 Xpm="32 32 4 1"
 "! c #009520"
 ". c none"
@@ -5776,8 +5794,8 @@ String=4,heather
 String=3,heide
 String=2,Heide
 FontStyle=SmallFont
-DayCustomColor=#d7dfd2
-NightCustomColor=#711471
+DayCustomColor=#711471
+NightCustomColor=#d7dfd2
 Xpm="0 0 2 0"
 "a c #ffcaff"
 "# c #711471"
@@ -5788,8 +5806,8 @@ String=4,protected area
 String=3,beschermd gebied
 String=2,geschützte Gebiet
 FontStyle=SmallFont
-DayCustomColor=#c4dfc6
-NightCustomColor=#28401d
+DayCustomColor=#18402d
+NightCustomColor=#c4dfc6
 Xpm="32 32 4 1"
 "! c #39cf41"
 ". c none"

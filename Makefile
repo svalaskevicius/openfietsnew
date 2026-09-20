@@ -74,6 +74,7 @@ tmp/$(AREA)/split/__split.done: $(UK_ELE) $(POLYGON) $(CITIES) $(SEA)
 # Incremental on the split tiles and every style source file, so editing a .prj rebuilds just this.
 $(MAPIMG): tmp/$(AREA)/split/__split.done $(TYP_STYLES) \
 		   $(shell find styles/$(STYLE) -type f 2>/dev/null) styles/$(STYLE)/template.args
+	rm -rf $(tmp)/$(AREA)/out/
 	mkdir -p $(tmp)/$(AREA)/out
 	java -Xmx52G -jar $(MKGMAP_JAR) \
 		 --read-config=styles/$(STYLE)/template.args \
