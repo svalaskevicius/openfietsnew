@@ -83,6 +83,7 @@ $(MAPIMG): tmp/$(AREA)/split/__split.done $(TYP_STYLES) \
 		 --bounds=$(BOUNDS) \
 		 --precomp-sea=$(SEA) \
 		 --remove-ovm-work-files \
+		 --check-styles \
 		 --style-file=styles/$(STYLE) \
 		 tmp/$(AREA)/split/*.pbf styles/typ/openfietsnew.typ
 	mkdir -p maps/$(AREA)

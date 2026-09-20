@@ -183,7 +183,7 @@ highway=* & disused=yes [0x07 road_class=0 road_speed=1 resolution 22 continue]
 
 # bridges, tunnels, dams
 waterway=dam & highway=* [0x2b default_name="dam" resolution 23 continue with_actions]
-waterway=dam & highway!=* [0x08 default_name="dam" resolution 23 continue with_actions]
+waterway=dam & highway!=* [0x08 default_name="dam" road_class=0 road_speed=1 resolution 23 continue with_actions]
 (highway=* | railway=*) & bridge=* & bridge!=no & bridge!=proposed & area!=yes [0x2b resolution 23 continue with_actions]
 highway=* & (tunnel=yes | tunnel=true | tunnel=1 | covered=yes | tunnel=building_passage)  [0x09 road_class=3 road_speed=2 resolution 23]
 waterway=* & (tunnel=yes | tunnel=culvert | culvert=yes | covered=yes) {delete 'waterway'}
@@ -248,26 +248,26 @@ highway=cycleway & mkgmap:unpaved!=1 & unpaved!=2 & track!=yes [0x16 road_class=
 
 highway=service & bicycle!=no [0x07 road_class=1 road_speed=2 resolution 23 continue]
 highway=service & bicycle=no & foot!=no [0x07 road_class=0 road_speed=0 resolution 23 continue]
-(highway=unclassified | highway=service) & bicycle!=no & junction=roundabout [0x060 resolution 23]
-highway=unclassified & bicycle!=no [0x060 road_class=3 road_speed=2 resolution 23  continue with_actions]
+(highway=unclassified | highway=service) & bicycle!=no & junction=roundabout [0x06 road_class=3 road_speed=2 resolution 23]
+highway=unclassified & bicycle!=no [0x06 road_class=3 road_speed=2 resolution 23]
 (highway=unclassified | highway=service) & bicycle=no & car=no & foot!=no [0x08 road_class=0 road_speed=0 resolution 23]
 highway=unclassified & bicycle=no [0x10018 resolution 23]
 highway=service & bicycle=no & area!=yes [0x10018 resolution 23]
 
 highway=tertiary [0x10001 resolution 20-22 continue with_actions]
-highway=tertiary & bicycle!=no & junction=roundabout [0x050 resolution 23]
-highway=tertiary & bicycle!=no [0x050 road_class=3 road_speed=2 resolution 23 continue with_actions]
+highway=tertiary & bicycle!=no & junction=roundabout [0x05 road_class=3 road_speed=2 resolution 23]
+highway=tertiary & bicycle!=no [0x05 road_class=3 road_speed=2 resolution 23]
 highway=tertiary & bicycle=no {add foot=no} [0x10004 resolution 23]
 
 highway=secondary [0x12 resolution 20-21 continue with_actions]
-highway=secondary & bicycle!=no & junction=roundabout [0x040 resolution 22]
-highway=secondary & bicycle!=no [0x040 road_class=2 road_speed=2 resolution 22 continue with_actions]
+highway=secondary & bicycle!=no & junction=roundabout [0x04 road_class=2 road_speed=2 resolution 22]
+highway=secondary & bicycle!=no [0x04 road_class=2 road_speed=2 resolution 22]
 highway=secondary & bicycle=no  {add foot=no} [0x10003 resolution 22]
 
 highway=primary [0x10000 resolution 18-19 continue with_actions]
 highway=primary [0x10014 resolution 20-21 continue with_actions]
-highway=primary & bicycle!=no & junction=roundabout [0x030 resolution 22]
-highway=primary & bicycle!=no [0x030 road_class=1 road_speed=2 resolution 22 continue with_actions]
+highway=primary & bicycle!=no & junction=roundabout [0x03 road_class=1 road_speed=2 resolution 22]
+highway=primary & bicycle!=no [0x03 road_class=1 road_speed=2 resolution 22]
 highway=primary & bicycle=no {add foot=no} [0x10002 resolution 22]
 
 highway=motorway_bike  [0x10000  resolution 18-19 continue with_actions]

@@ -3883,8 +3883,9 @@ String=3,fietsroute
 String=4,cycling route
 FontStyle=NoLabel
 Linewidth=3
-Xpm="0 0 1 0"
-"a c #7b958b"
+Xpm="0 0 2 0"
+"a c #4b655b"
+"1 c #abc5bb"
 [_end]
 [_line]
 Type=0x01
@@ -3894,9 +3895,11 @@ String=4,motorway, trunk (cycling allowed)
 FontStyle=SmallFont
 Linewidth=1
 Borderwidth=3
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "a c #bdcad5"
 "b c #7b306a"
+"1 c #7b306a"
+"2 c #bdcad5"
 [_end]
 [_line]
 Type=0x02
@@ -3920,9 +3923,11 @@ String=4,principal highway
 FontStyle=SmallFont
 Linewidth=1
 Borderwidth=3
-Xpm="0 0 2 0"
+Xpm="0 0 4 0"
 "a c #b4b4b4"
 "b c #525252"
+"1 c #525252"
+"2 c #b4b4b4"
 [_end]
 [_line]
 Type=0x04
@@ -4426,9 +4431,13 @@ String=2,Rad route
 String=3,fietsroute
 String=4,bike route
 FontStyle=SmallFont
-Linewidth=3
-Xpm="0 0 1 0"
-"a c #7b306a"
+Linewidth=2
+Borderwidth=1
+Xpm="0 0 4 0"
+"! c #eb70ba"
+"# c #5b105a"
+"1 c #5b105a"
+"2 c #eb70ba"
 [_end]
 [_line]
 Type=0x29
@@ -5017,9 +5026,13 @@ String=4,cycle route
 String=3,fietsroute
 String=2,Radroute
 FontStyle=NoLabel
-Linewidth=1
-Xpm="0 0 1 0"
-"a c #7b30b4"
+Linewidth=2
+Borderwidth=1
+Xpm="0 0 4 0"
+"! c #eb70ba"
+"# c #222222"
+"1 c #7b306a"
+"2 c #cccccc"
 [_end]
 [_line]
 Type=0x10119
