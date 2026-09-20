@@ -5506,7 +5506,7 @@ FontStyle=SmallFont
 DayCustomColor=#d7dfd2
 NightCustomColor=#ebefe9
 Xpm="0 0 2 0"
-"a c #bdffb4"
+"a c #bdefb4"
 "b c #3a5240"
 [_end]
 [_polygon]
@@ -5564,7 +5564,7 @@ FontStyle=NoLabel
 DayCustomColor=#ebffd2
 NightCustomColor=#f5ffe9
 Xpm="32 32 4 1"
-"! c #bdff00"
+"! c #9de030"
 ". c none"
 "3 c #556c13"
 "4 c none"
@@ -5610,7 +5610,7 @@ FontStyle=NoLabel
 DayCustomColor=#b2d1b2
 NightCustomColor=#2f4521
 Xpm="32 32 4 1"
-"! c #9def5a"
+"! c #99df58"
 "# c #30ca30"
 "3 c #5a7034"
 "4 c #2f4a1e"
@@ -5778,7 +5778,7 @@ FontStyle=SmallFont
 DayCustomColor=#c4dfc6
 NightCustomColor=#28401d
 Xpm="32 32 4 1"
-"! c #39ff41"
+"! c #39cf41"
 ". c none"
 "3 c #28401d"
 "4 c none"
@@ -6213,7 +6213,7 @@ FontStyle=NoLabel
 DayCustomColor=#d7dfd2
 NightCustomColor=#ebefe9
 Xpm="32 32 4 1"
-"! c #bdff8b"
+"! c #9ddf6b"
 "# c #7b956a"
 "3 c #3c7114"
 "4 c #3e4a35"

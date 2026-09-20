@@ -339,7 +339,7 @@ railway=abandoned & tunnel!=yes & highway!=* [0x15 default_name="abandoned railw
 railway=disused | (railway=* & disused=yes) & tunnel!=yes [0x10112 resolution 23]
 railway=rail & (service=* | usage=industrial | usage=tourism) & tunnel!=yes [0x10112 resolution 23]
 
-railway=rail & tunnel=yes  [0x10113 resolution 20 continue with_actions]
+railway=rail & tunnel=yes  [0x10113 resolution 24 continue with_actions]
 railway=rail & tunnel!=yes & (trainroute=yes | highspeed=yes | usage=main) [0x2a resolution 18-19 continue with_actions]
 railway=rail & tunnel!=yes & (trainroute=yes | highspeed=yes | usage=main) [0x14 resolution 20 continue]
 railway=rail & tunnel!=yes & (trainroute=yes | highspeed=yes | usage=main) [0x10114 resolution 20]
@@ -348,12 +348,12 @@ railway=rail & tunnel!=yes & !(trainroute=yes | highspeed=yes | usage=main) [0x1
 railway=rail & tunnel!=yes & !(trainroute=yes | highspeed=yes | usage=main) [0x10114 resolution 23]
 
 (railway=subway | railway=light_rail) & (layer>0) [0x10114 resolution 22]
-(railway=subway | railway=light_rail) & (layer<0) [0x10113 resolution 22]
-railway=subway [0x10113 resolution 22]
+(railway=subway | railway=light_rail) & (layer<0) [0x10113 resolution 24]
+railway=subway [0x10113 resolution 24]
 railway=light_rail [0x10114 resolution 22]
 
-railway=construction & (mkgmap:country=NLD | mkgmap:admin_level4="Vlaanderen") [0x10113 default_name="in aanleg" resolution 22]
-railway=construction [0x10113 default_name="construction" resolution 22]
+railway=construction & (mkgmap:country=NLD | mkgmap:admin_level4="Vlaanderen") [0x10113 default_name="in aanleg" resolution 24]
+railway=construction [0x10113 default_name="construction" resolution 24]
 
 railway=tram [0x2a default_name="tram" resolution 24]
 (railway=preserved | railway=miniature) & (mkgmap:country=NLD | mkgmap:admin_level4="Vlaanderen") [0x2a default_name="historische spoorlijn" resolution 23]
